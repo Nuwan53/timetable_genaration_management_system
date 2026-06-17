@@ -11,18 +11,64 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [errors, setErrors] = useState({});
+  const [formError, setFormError] = useState("");
 
-  const handleSubmit = (e) => {
+  const validate = () => {
+    const nextErrors = {};
+
+    if (!email.trim()) {
+      nextErrors.email = "Email is required.";
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      nextErrors.email = "Enter a valid email address.";
+    }
+
+    if (!password) {
+      nextErrors.password = "Password is required.";
+    } else if (password.length < 6) {
+      nextErrors.password = "Password must be at least 6 characters.";
+    }
+
+    return nextErrors;
+  };
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
+    setFormError("");
+
+    const validationErrors = validate();
+    setErrors(validationErrors);
+    if (Object.keys(validationErrors).length > 0) return;
+
     setIsLoading(true);
 
-    setTimeout(() => {
-      console.log({ email, password, role, rememberMe });
-      setIsLoading(false);
+    try {
+      // Replace this block with a real API call, e.g.:
+      // const res = await fetch("/api/auth/login", {
+      //   method: "POST",
+      //   headers: { "Content-Type": "application/json" },
+      //   body: JSON.stringify({ email, password, role, rememberMe }),
+      // });
+      // if (!res.ok) throw new Error("Invalid email or password.");
 
-      if (role === "student") navigate("/student-timetable");
-      if (role === "lecturer") navigate("/lecturer-timetable");
-    }, 1200);
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+
+      const destinations = {
+        student: "/student-timetable",
+        lecturer: "/lecturer-timetable",
+      };
+
+      const destination = destinations[role];
+      if (!destination) {
+        throw new Error("Unrecognized role selected.");
+      }
+
+      navigate(destination);
+    } catch (err) {
+      setFormError(err.message || "Something went wrong. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -120,7 +166,14 @@ export default function LoginPage() {
             </p>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-6">
+          {formError && (
+            <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4 flex gap-3">
+              <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+              <p className="text-sm text-red-900">{formError}</p>
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} className="space-y-6" noValidate>
             <div>
               <label className="block text-sm font-semibold text-gray-900 mb-2">
                 Login As
@@ -160,11 +213,21 @@ export default function LoginPage() {
                 id="email"
                 type="email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  if (errors.email) setErrors((prev) => ({ ...prev, email: undefined }));
+                }}
                 placeholder="name@sci.ruh.ac.lk"
-                className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50"
-                required
+                aria-invalid={Boolean(errors.email)}
+                className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 bg-gray-50 ${
+                  errors.email
+                    ? "border-red-400 focus:ring-red-400"
+                    : "border-gray-200 focus:ring-blue-500"
+                }`}
               />
+              {errors.email && (
+                <p className="text-sm text-red-600 mt-1.5">{errors.email}</p>
+              )}
             </div>
 
             <div>
@@ -182,19 +245,30 @@ export default function LoginPage() {
                   id="password"
                   type={showPassword ? "text" : "password"}
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    if (errors.password) setErrors((prev) => ({ ...prev, password: undefined }));
+                  }}
                   placeholder="Enter your password"
-                  className="w-full px-4 py-3 pr-12 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50"
-                  required
+                  aria-invalid={Boolean(errors.password)}
+                  className={`w-full px-4 py-3 pr-12 border rounded-lg focus:outline-none focus:ring-2 bg-gray-50 ${
+                    errors.password
+                      ? "border-red-400 focus:ring-red-400"
+                      : "border-gray-200 focus:ring-blue-500"
+                  }`}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
                 >
                   {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                 </button>
               </div>
+              {errors.password && (
+                <p className="text-sm text-red-600 mt-1.5">{errors.password}</p>
+              )}
             </div>
 
             <div className="flex items-center gap-3">
