@@ -10,7 +10,7 @@ import {
   Building2,
   GraduationCap,
   Phone,
-} from "lucide-react";;
+} from "lucide-react";
 
 export default function LecturerSignup() {
   const navigate = useNavigate();
