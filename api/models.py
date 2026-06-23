@@ -1,4 +1,5 @@
 from django.db import models
+from django.contrib.auth.models import User
 
 
 class Course(models.Model):
@@ -92,3 +93,43 @@ class ScheduleSlot(models.Model):
 
     class Meta:
         ordering = ['timeslot__day', 'timeslot__start_time']
+
+
+# ── User Authentication & Enrollment ────────────────────────────────────────
+class UserProfile(models.Model):
+    """Extends Django User with role information and profile data."""
+    ROLE_CHOICES = [
+        ('admin', 'Administrator'),
+        ('lecturer', 'Lecturer'),
+        ('student', 'Student'),
+    ]
+    
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='student')
+    phone = models.CharField(max_length=20, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.user.username} ({self.get_role_display()})"
+
+    class Meta:
+        ordering = ['user__username']
+
+
+class StudentEnrollment(models.Model):
+    """Links students to their assigned student groups."""
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name='enrollments',
+        limit_choices_to={'profile__role': 'student'}
+    )
+    group = models.ForeignKey(StudentGroup, on_delete=models.CASCADE, related_name='students')
+    enrolled_at = models.DateTimeField(auto_now_add=True)
+    semester = models.CharField(max_length=20, default='S2-2026')
+
+    def __str__(self):
+        return f"{self.user.get_full_name() or self.user.username} → {self.group}"
+
+    class Meta:
+        unique_together = ('user', 'group', 'semester')
+        ordering = ['group', 'user__first_name']

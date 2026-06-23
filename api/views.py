@@ -1,14 +1,16 @@
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
 from django.http import HttpResponse
 from django.db.models import Q
-from .models import Course, Lecturer, Venue, StudentGroup, TimeSlot, ScheduleSlot
+from .models import Course, Lecturer, Venue, StudentGroup, TimeSlot, ScheduleSlot, StudentEnrollment
 from .serializers import (
     CourseSerializer, LecturerSerializer, VenueSerializer,
     StudentGroupSerializer, TimeSlotSerializer,
     ScheduleSlotReadSerializer, ScheduleSlotWriteSerializer,
 )
+from .permissions import IsAdmin, IsAdminOrReadOnly
 
 # ── PDF export ───────────────────────────────────────────────────────────────
 from reportlab.lib.pagesizes import A4, landscape
@@ -26,40 +28,89 @@ TIMES = ['08:00', '09:00', '10:00', '11:00', '12:00', '13:00',
 class CourseViewSet(viewsets.ModelViewSet):
     queryset = Course.objects.all()
     serializer_class = CourseSerializer
+    permission_classes = [IsAdminOrReadOnly]
+    
+    def get_permissions(self):
+        if self.action in ('create', 'update', 'partial_update', 'destroy'):
+            self.permission_classes = [IsAdmin]
+        return super().get_permissions()
 
 
 class LecturerViewSet(viewsets.ModelViewSet):
     queryset = Lecturer.objects.all()
     serializer_class = LecturerSerializer
+    permission_classes = [IsAdminOrReadOnly]
+    
+    def get_permissions(self):
+        if self.action in ('create', 'update', 'partial_update', 'destroy'):
+            self.permission_classes = [IsAdmin]
+        return super().get_permissions()
 
 
 class VenueViewSet(viewsets.ModelViewSet):
     queryset = Venue.objects.all()
     serializer_class = VenueSerializer
+    permission_classes = [IsAdminOrReadOnly]
+    
+    def get_permissions(self):
+        if self.action in ('create', 'update', 'partial_update', 'destroy'):
+            self.permission_classes = [IsAdmin]
+        return super().get_permissions()
 
 
 class StudentGroupViewSet(viewsets.ModelViewSet):
     queryset = StudentGroup.objects.all()
     serializer_class = StudentGroupSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_permissions(self):
+        if self.action in ('create', 'update', 'partial_update', 'destroy'):
+            self.permission_classes = [IsAdmin]
+        return super().get_permissions()
 
 
 class TimeSlotViewSet(viewsets.ModelViewSet):
     queryset = TimeSlot.objects.all()
     serializer_class = TimeSlotSerializer
+    permission_classes = [IsAdminOrReadOnly]
+    
+    def get_permissions(self):
+        if self.action in ('create', 'update', 'partial_update', 'destroy'):
+            self.permission_classes = [IsAdmin]
+        return super().get_permissions()
 
 
 class ScheduleSlotViewSet(viewsets.ModelViewSet):
-    queryset = ScheduleSlot.objects.select_related(
-        'timeslot', 'course', 'lecturer', 'venue', 'group'
-    ).all()
-
-    def get_serializer_class(self):
-        if self.action in ('create', 'update', 'partial_update'):
-            return ScheduleSlotWriteSerializer
-        return ScheduleSlotReadSerializer
-
+    permission_classes = [IsAuthenticated]
+    
     def get_queryset(self):
-        qs = super().get_queryset()
+        user = self.request.user
+        qs = ScheduleSlot.objects.select_related(
+            'timeslot', 'course', 'lecturer', 'venue', 'group'
+        )
+        
+        # Role-based filtering
+        if user.is_superuser or (hasattr(user, 'profile') and user.profile.role == 'admin'):
+            # Admins see all slots
+            pass
+        elif hasattr(user, 'profile') and user.profile.role == 'lecturer':
+            # Lecturers see only their own schedule slots
+            # First, find lecturer record for this user
+            try:
+                from django.db.models import F
+                qs = qs.filter(lecturer__email=user.email)
+            except:
+                qs = qs.none()
+        elif hasattr(user, 'profile') and user.profile.role == 'student':
+            # Students see slots for their enrolled groups
+            enrolled_groups = StudentEnrollment.objects.filter(
+                user=user
+            ).values_list('group_id', flat=True)
+            qs = qs.filter(group_id__in=enrolled_groups)
+        else:
+            qs = qs.none()
+        
+        # Apply query parameters
         params = self.request.query_params
 
         if level := params.get('level'):
@@ -74,6 +125,50 @@ class ScheduleSlotViewSet(viewsets.ModelViewSet):
             qs = qs.filter(lecturer_id=lecturer)
 
         return qs
+
+    def get_serializer_class(self):
+        if self.action in ('create', 'update', 'partial_update'):
+            return ScheduleSlotWriteSerializer
+        return ScheduleSlotReadSerializer
+
+    def get_permissions(self):
+        if self.action in ('create', 'update', 'partial_update', 'destroy'):
+            self.permission_classes = [IsAdmin]
+        return super().get_permissions()
+    
+    @action(detail=False, methods=['get'])
+    def my_schedule(self, request):
+        """
+        Get current user's personal schedule.
+        Lecturers: their teaching schedule
+        Students: their timetable
+        GET /api/slots/my_schedule/
+        """
+        user = request.user
+        
+        if hasattr(user, 'profile') and user.profile.role == 'lecturer':
+            # Get lecturer's schedule
+            try:
+                slots = ScheduleSlot.objects.select_related(
+                    'timeslot', 'course', 'lecturer', 'venue', 'group'
+                ).filter(lecturer__email=user.email)
+                serializer = ScheduleSlotReadSerializer(slots, many=True)
+                return Response(serializer.data)
+            except:
+                return Response([], status=status.HTTP_200_OK)
+        
+        elif hasattr(user, 'profile') and user.profile.role == 'student':
+            # Get student's timetable
+            enrolled_groups = StudentEnrollment.objects.filter(
+                user=user
+            ).values_list('group_id', flat=True)
+            slots = ScheduleSlot.objects.select_related(
+                'timeslot', 'course', 'lecturer', 'venue', 'group'
+            ).filter(group_id__in=enrolled_groups)
+            serializer = ScheduleSlotReadSerializer(slots, many=True)
+            return Response(serializer.data)
+        
+        return Response([], status=status.HTTP_200_OK)
 
     @action(detail=False, methods=['get'], url_path='export-pdf')
     def export_pdf(self, request):
