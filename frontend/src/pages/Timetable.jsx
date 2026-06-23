@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { slots, courses, lecturers, venues, groups, timeslots } from '../api';
-import { Download, Plus, X } from 'lucide-react';
+import { Download,  X } from 'lucide-react';
 import Modal from '../components/Modal';
 import toast from 'react-hot-toast';
 
@@ -16,7 +16,7 @@ export default function Timetable() {
 
   // Form data
   const [showForm, setShowForm]   = useState(false);
-  const [clickedSlot, setClicked] = useState(null); // {timeslot_id, day}
+  const [, setClicked] = useState(null); // {timeslot_id, day}
   const [form, setForm]           = useState({});
   const [conflicts, setConflicts] = useState([]);
   const [allCourses, setAllCourses]   = useState([]);
@@ -31,7 +31,8 @@ export default function Timetable() {
       .then(r => { setSlotList(r.data); setLoading(false); });
   }, [filterLevel, filterStream, filterSem]);
 
-  useEffect(() => { loadSlots(); }, [loadSlots]);
+  // Call loadSlots asynchronously to avoid calling setState synchronously inside an effect
+  useEffect(() => { Promise.resolve().then(() => loadSlots()); }, [loadSlots]);
 
   useEffect(() => {
     timeslots.list().then(r => setAllTS(r.data));
@@ -46,6 +47,33 @@ export default function Timetable() {
     allTimeslots.map(ts => [ts.start_time, ts])
   ).values()].sort((a,b) => a.start_time.localeCompare(b.start_time));
 
+  // Helper: Calculate time difference in hours
+  const getHoursDiff = (startStr, endStr) => {
+    const [sh, sm] = startStr.split(':').map(Number);
+    const [eh, em] = endStr.split(':').map(Number);
+    return (eh * 60 + em - sh * 60 - sm) / 60;
+  };
+
+  // Helper: Calculate rowspan for a slot
+  const calculateRowspan = (slot) => {
+    const durationHours = getHoursDiff(slot.timeslot.start_time, slot.timeslot.end_time);
+    // Find how many unique start_times fall within this duration
+    const slotStartIdx = uniqueTimes.findIndex(t => t.start_time === slot.timeslot.start_time);
+    if (slotStartIdx === -1) return 1;
+    
+    let rowspan = 1;
+    for (let i = slotStartIdx + 1; i < uniqueTimes.length; i++) {
+      const nextTime = uniqueTimes[i];
+      const timeDiffFromStart = getHoursDiff(slot.timeslot.start_time, nextTime.start_time);
+      if (timeDiffFromStart < durationHours) {
+        rowspan++;
+      } else {
+        break;
+      }
+    }
+    return rowspan;
+  };
+
   // Build grid: grid[day][start_time] = slot
   const grid = {};
   DAYS.forEach(d => { grid[d] = {}; });
@@ -55,8 +83,22 @@ export default function Timetable() {
     grid[day][time] = slot;
   });
 
+  // Track which cells are occupied by spanning slots
+  const occupiedCells = new Set();
+  DAYS.forEach(day => {
+    uniqueTimes.forEach((ts, idx) => {
+      const slot = grid[day][ts.start_time];
+      if (slot) {
+        const rowspan = calculateRowspan(slot);
+        // Mark all rows below this one as occupied
+        for (let i = 1; i < rowspan; i++) {
+          occupiedCells.add(`${day}-${idx + i}`);
+        }
+      }
+    });
+  });
+
   const openAdd = (tsId, day) => {
-    const ts = allTimeslots.find(t => t.id === tsId);
     const matchedGroups = allGroups.filter(g => g.level === filterLevel && g.stream === filterStream);
     setClicked({ timeslot_id: tsId, day });
     setConflicts([]);
@@ -175,34 +217,51 @@ export default function Timetable() {
                     No time slots defined yet. Go to <strong>Time Slots</strong> to add them first.
                   </td></tr>
                 )}
-                {uniqueTimes.map(ts => (
-                  <tr key={ts.id}>
-                    <td className="time-col">{ts.start_time.slice(0,5)}<br/><span style={{fontSize:9,opacity:.7}}>{ts.end_time.slice(0,5)}</span></td>
-                    {DAYS.map(day => {
-                      const tsForDay = allTimeslots.find(t => t.day === day && t.start_time === ts.start_time);
-                      const slot = tsForDay ? grid[day][tsForDay.start_time] : null;
-                      return (
-                        <td key={day} onClick={() => !slot && tsForDay && openAdd(tsForDay.id, day)}>
-                          {slot ? (
-                            <div className="slot-cell">
-                              <div style={{fontWeight:600}}>{slot.course.code}</div>
-                              <div style={{opacity:.85}}>{slot.venue.code}</div>
-                              <div style={{opacity:.7,fontSize:10}}>{slot.lecturer.name.split(' ').pop()}</div>
-                              <button className="slot-del btn" style={{background:'transparent',padding:0,color:'#fff',fontSize:12}}
-                                onClick={e => deleteSlot(slot.id, e)}>
-                                <X size={12}/>
-                              </button>
-                            </div>
-                          ) : (
-                            tsForDay
-                              ? <div className="empty-cell" title="Click to add"/>
-                              : <span style={{color:'#e2e8f0',fontSize:11}}>—</span>
-                          )}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
+                {uniqueTimes.map((ts, timeIdx) => {
+                  // Skip rows that are occupied by spanning slots
+                  const isOccupied = DAYS.some(day => occupiedCells.has(`${day}-${timeIdx}`));
+                  if (isOccupied) return null;
+
+                  return (
+                    <tr key={ts.id}>
+                      <td className="time-col">{ts.start_time.slice(0,5)}<br/><span style={{fontSize:9,opacity:.7}}>{ts.end_time.slice(0,5)}</span></td>
+                      {DAYS.map(day => {
+                        // Skip cells that are occupied by a spanning slot
+                        if (occupiedCells.has(`${day}-${timeIdx}`)) {
+                          return null;
+                        }
+
+                        const tsForDay = allTimeslots.find(t => t.day === day && t.start_time === ts.start_time);
+                        const slot = tsForDay ? grid[day][tsForDay.start_time] : null;
+                        const rowspan = slot ? calculateRowspan(slot) : 1;
+                        const displayTime = slot 
+                          ? `${slot.timeslot.start_time.slice(0,5)}-${slot.timeslot.end_time.slice(0,5)}`
+                          : '';
+
+                        return (
+                          <td key={day} rowSpan={rowspan} onClick={() => !slot && tsForDay && openAdd(tsForDay.id, day)}>
+                            {slot ? (
+                              <div className="slot-cell">
+                                <div style={{fontWeight:600}}>{slot.course.code}</div>
+                                <div style={{opacity:.85}}>{slot.venue.code}</div>
+                                <div style={{opacity:.7,fontSize:10}}>{slot.lecturer.name.split(' ').pop()}</div>
+                                {rowspan > 1 && <div style={{opacity:.6,fontSize:9,marginTop:'2px'}}>({displayTime})</div>}
+                                <button className="slot-del btn" style={{background:'transparent',padding:0,color:'#fff',fontSize:12}}
+                                  onClick={e => deleteSlot(slot.id, e)}>
+                                  <X size={12}/>
+                                </button>
+                              </div>
+                            ) : (
+                              tsForDay
+                                ? <div className="empty-cell" title="Click to add"/>
+                                : <span style={{color:'#e2e8f0',fontSize:11}}>-</span>
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
