@@ -11,17 +11,19 @@ import {
   GraduationCap,
   Phone,
 } from "lucide-react";
+import { auth } from "../api";
+import toast from "react-hot-toast";
 
 export default function LecturerSignup() {
   const navigate = useNavigate();
 
   const [showPassword, setShowPassword] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const [form, setForm] = useState({
-    fullName: "",
+    username: "",
+    first_name: "",
+    last_name: "",
     email: "",
-    phone: "",
-    department: "",
-    designation: "",
     password: "",
     confirmPassword: "",
   });
@@ -30,16 +32,34 @@ export default function LecturerSignup() {
     setForm({ ...form, [e.target.name]: e.target.value });
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
+    setIsLoading(true);
 
     if (form.password !== form.confirmPassword) {
-      alert("Passwords do not match");
+      toast.error("Passwords do not match");
+      setIsLoading(false);
       return;
     }
 
-    alert("Lecturer account request submitted. Please wait for admin approval.");
-    navigate("/");
+    try {
+      const response = await auth.signup({
+        username: form.username,
+        first_name: form.first_name,
+        last_name: form.last_name,
+        email: form.email,
+        password: form.password,
+        role: "lecturer",
+      });
+      
+      toast.success("Account created successfully! Please login.");
+      navigate("/");
+    } catch (err) {
+      const msg = err.response?.data?.detail || err.response?.data?.error || err.message || "Signup failed";
+      toast.error(msg);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -89,11 +109,29 @@ export default function LecturerSignup() {
           <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-5">
             <Input
               icon={<User size={18} />}
-              label="Full Name"
-              name="fullName"
-              value={form.fullName}
+              label="Username"
+              name="username"
+              value={form.username}
               onChange={handleChange}
-              placeholder="Enter full name"
+              placeholder="Choose a unique username"
+            />
+
+            <Input
+              icon={<User size={18} />}
+              label="First Name"
+              name="first_name"
+              value={form.first_name}
+              onChange={handleChange}
+              placeholder="Enter first name"
+            />
+
+            <Input
+              icon={<User size={18} />}
+              label="Last Name"
+              name="last_name"
+              value={form.last_name}
+              onChange={handleChange}
+              placeholder="Enter last name"
             />
 
             <Input
@@ -104,49 +142,6 @@ export default function LecturerSignup() {
               value={form.email}
               onChange={handleChange}
               placeholder="name@sci.ruh.ac.lk"
-            />
-
-            <Input
-              icon={<Phone size={18} />}
-              label="Phone Number"
-              name="phone"
-              value={form.phone}
-              onChange={handleChange}
-              placeholder="07X XXX XXXX"
-            />
-
-            <Select
-              label="Department"
-              name="department"
-              value={form.department}
-              onChange={handleChange}
-              options={[
-                "Computer Science",
-                "Mathematics",
-                "Physics",
-                "Chemistry",
-                "Botany",
-                "Zoology",
-              ]}
-            />
-
-            <Input
-              icon={<GraduationCap size={18} />}
-              label="Designation"
-              name="designation"
-              value={form.designation}
-              onChange={handleChange}
-              placeholder="Senior Lecturer / Lecturer / Professor"
-            />
-
-            <Input
-              icon={<Building2 size={18} />}
-              label="Office / Room"
-              name="office"
-              value={form.office}
-              onChange={handleChange}
-              placeholder="Optional"
-              required={false}
             />
 
             <PasswordInput
@@ -170,9 +165,10 @@ export default function LecturerSignup() {
             <div className="md:col-span-2 mt-3">
               <button
                 type="submit"
-                className="w-full rounded-lg bg-blue-600 py-3 text-white font-semibold hover:bg-blue-700 transition"
+                disabled={isLoading}
+                className="w-full rounded-lg bg-blue-600 py-3 text-white font-semibold hover:bg-blue-700 disabled:bg-blue-400 transition"
               >
-                Submit Account Request
+                {isLoading ? "Creating account..." : "Create Lecturer Account"}
               </button>
 
               <p className="mt-5 text-center text-sm text-gray-600">

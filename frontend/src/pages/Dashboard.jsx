@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import {
   AreaChart,
   Area,
@@ -28,89 +29,99 @@ import {
   CalendarCheck,
   LogOut,
 } from "lucide-react";
-
-const chartData = [
-  { day: "Mon", conflicts: 3 },
-  { day: "Tue", conflicts: 5 },
-  { day: "Wed", conflicts: 12 },
-  { day: "Thu", conflicts: 8 },
-  { day: "Fri", conflicts: 9 },
-];
-
-const HIGHLIGHTED_DAYS = ["Wed", "Fri"];
-
-function HighlightDot({ cx, cy, payload }) {
-  if (!HIGHLIGHTED_DAYS.includes(payload.day)) return null;
-  return (
-    <circle
-      cx={cx}
-      cy={cy}
-      r={5}
-      fill="#2563eb"
-      stroke="#fff"
-      strokeWidth={2}
-    />
-  );
-}
-
-function ConflictTooltip({ active, payload, label }) {
-  if (!active || !payload?.length) return null;
-
-  return (
-    <div className="rounded-lg bg-slate-900 px-4 py-2.5 text-white shadow-lg">
-      <p className="text-xs font-medium">{label}</p>
-      <p className="text-xs text-slate-300">
-        Conflicts: {payload[0].value}
-      </p>
-    </div>
-  );
-}
+import { dashboard, auth } from "../api";
+import toast from "react-hot-toast";
+import { useNavigate } from "react-router-dom";
 
 export default function Dashboard() {
+  const navigate = useNavigate();
+  const [stats, setStats] = useState(null);
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const loadDashboardData = async () => {
+      try {
+        const userStr = localStorage.getItem("user");
+        if (userStr) setUser(JSON.parse(userStr));
+        
+        const response = await dashboard.stats();
+        setStats(response.data);
+      } catch (err) {
+        toast.error("Failed to load dashboard data");
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    loadDashboardData();
+  }, []);
+
+  const handleLogout = async () => {
+    try {
+      await auth.logout();
+      localStorage.removeItem("token");
+      localStorage.removeItem("user");
+      navigate("/");
+      toast.success("Logged out successfully");
+    } catch (err) {
+      console.log("Logout error (expected):", err);
+      localStorage.removeItem("token");
+      localStorage.removeItem("user");
+      navigate("/");
+    }
+  };
+
+  if (loading) return <div className="flex items-center justify-center min-h-screen"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div></div>;
+
   return (
     <div className="flex min-h-screen bg-gray-50">
-      <Sidebar />
+      <Sidebar onLogout={handleLogout} />
 
       <main className="flex-1">
-        <TopBar />
+        <TopBar user={user} onLogout={handleLogout} />
 
         <div className="p-8">
           <div className="mb-6">
             <h1 className="text-3xl font-bold text-slate-900">
-              Welcome Back, Admin
+              Welcome Back, {user?.first_name || "Admin"}
             </h1>
             <p className="text-sm text-slate-500">
               Manage courses, lecturers, venues and timetable publications.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-5">
-            <StatCard icon={<BookOpen size={18} />} label="Total Courses" value="84" badge="Active" />
-            <StatCard icon={<Users size={18} />} label="Total Lecturers" value="57" badge="Staff" />
-            <StatCard icon={<Building2 size={18} />} label="Total Venues" value="32" badge="Rooms" />
-            <StatCard icon={<CalendarCheck size={18} />} label="Published Timetables" value="12" badge="Ready" />
-            <StatCard icon={<AlertTriangle size={18} />} label="Active Conflicts" value="6" badge="Needs attention" alert />
-          </div>
+          {stats && (
+            <>
+              <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-5">
+                <StatCard icon={<BookOpen size={18} />} label="Total Courses" value={stats.total_courses} badge="Active" />
+                <StatCard icon={<Users size={18} />} label="Total Lecturers" value={stats.total_lecturers} badge="Staff" />
+                <StatCard icon={<Building2 size={18} />} label="Total Venues" value={stats.total_venues} badge="Rooms" />
+                <StatCard icon={<CalendarCheck size={18} />} label="Published Timetables" value={stats.published_timetables} badge="Ready" />
+                <StatCard icon={<AlertTriangle size={18} />} label="Active Conflicts" value={stats.active_conflicts} badge="Needs attention" alert />
+              </div>
 
-          <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-[1.6fr_1fr]">
-            <div className="space-y-6">
-              <ConflictChart />
-              <ResourceTable />
-            </div>
+              <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-[1.6fr_1fr]">
+                <div className="space-y-6">
+                  <ConflictChart weeklyData={stats.weekly_conflicts} />
+                  <ResourceTable />
+                </div>
 
-            <div className="space-y-6">
-              <PublicationStatus />
-              <RecentActivities />
-              <QuickActions />
-            </div>
-          </div>
+                <div className="space-y-6">
+                  <PublicationStatus />
+                  <RecentActivities />
+                  <QuickActions />
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </main>
     </div>
   );
 }
 
-function Sidebar() {
+function Sidebar({ onLogout }) {
   const navItems = [
     { label: "Dashboard", icon: LayoutGrid, active: true },
     { label: "Timetable Grid", icon: Table2 },
@@ -167,7 +178,7 @@ function Sidebar() {
         <button className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm hover:bg-white/10">
           <Settings size={18} /> Settings
         </button>
-        <button className="mt-2 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-red-300 hover:bg-red-500/10">
+        <button onClick={onLogout} className="mt-2 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-red-300 hover:bg-red-500/10">
           <LogOut size={18} /> Logout
         </button>
       </div>
@@ -175,7 +186,7 @@ function Sidebar() {
   );
 }
 
-function TopBar() {
+function TopBar({ user, onLogout }) {
   return (
     <header className="flex h-20 items-center justify-between border-b border-slate-200 bg-white px-8 shadow-sm">
       <div className="flex items-center gap-8">
@@ -201,7 +212,7 @@ function TopBar() {
         <div className="flex items-center gap-3 border-l border-slate-200 pl-4">
           <div>
             <p className="text-right text-sm font-medium text-slate-800">
-              Admin Portal
+              {user?.first_name || "Admin"}
             </p>
             <p className="text-right text-xs text-slate-400">
               Faculty of Science
@@ -243,7 +254,46 @@ function StatCard({ icon, label, value, badge, alert }) {
   );
 }
 
-function ConflictChart() {
+function ConflictChart({ weeklyData = [] }) {
+  const chartData = weeklyData.length > 0 
+    ? weeklyData.map(d => ({ day: d.day, conflicts: d.conflicts }))
+    : [
+        { day: "Mon", conflicts: 0 },
+        { day: "Tue", conflicts: 0 },
+        { day: "Wed", conflicts: 0 },
+        { day: "Thu", conflicts: 0 },
+        { day: "Fri", conflicts: 0 },
+      ];
+
+  const HIGHLIGHTED_DAYS = ["Wed", "Fri"];
+
+  function HighlightDot({ cx, cy, payload }) {
+    if (!HIGHLIGHTED_DAYS.includes(payload.day)) return null;
+    return (
+      <circle
+        cx={cx}
+        cy={cy}
+        r={5}
+        fill="#2563eb"
+        stroke="#fff"
+        strokeWidth={2}
+      />
+    );
+  }
+
+  function ConflictTooltip({ active, payload, label }) {
+    if (!active || !payload?.length) return null;
+
+    return (
+      <div className="rounded-lg bg-slate-900 px-4 py-2.5 text-white shadow-lg">
+        <p className="text-xs font-medium">{label}</p>
+        <p className="text-xs text-slate-300">
+          Conflicts: {payload[0].value}
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
       <div className="flex items-start justify-between">

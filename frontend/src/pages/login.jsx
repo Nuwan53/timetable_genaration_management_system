@@ -1,13 +1,15 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { Eye, EyeOff, AlertCircle } from "lucide-react";
+import { auth } from "../api";
+import toast from "react-hot-toast";
+import Ruhuna from '../assets/Ruhuna.jpg';
 
 export default function LoginPage() {
   const navigate = useNavigate();
 
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState("student");
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -17,16 +19,12 @@ export default function LoginPage() {
   const validate = () => {
     const nextErrors = {};
 
-    if (!email.trim()) {
-      nextErrors.email = "Email is required.";
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      nextErrors.email = "Enter a valid email address.";
+    if (!username.trim()) {
+      nextErrors.username = "Username is required.";
     }
 
     if (!password) {
       nextErrors.password = "Password is required.";
-    } else if (password.length < 6) {
-      nextErrors.password = "Password must be at least 6 characters.";
     }
 
     return nextErrors;
@@ -43,29 +41,26 @@ export default function LoginPage() {
     setIsLoading(true);
 
     try {
-      // Replace this block with a real API call, e.g.:
-      // const res = await fetch("/api/auth/login", {
-      //   method: "POST",
-      //   headers: { "Content-Type": "application/json" },
-      //   body: JSON.stringify({ email, password, role, rememberMe }),
-      // });
-      // if (!res.ok) throw new Error("Invalid email or password.");
-
-      await new Promise((resolve) => setTimeout(resolve, 1200));
-
-      const destinations = {
-        student: "/student-timetable",
-        lecturer: "/lecturer-timetable",
+      const response = await auth.login(username, password);
+      const { token, user } = response.data;
+      
+      localStorage.setItem("token", token);
+      localStorage.setItem("user", JSON.stringify(user));
+      
+      // Redirect based on role
+      const roleRedirects = {
+        admin: "/dashboard",
+        lecturer: "/lecturer-dashboard",
+        student: "/student-dashboard",
       };
-
-      const destination = destinations[role];
-      if (!destination) {
-        throw new Error("Unrecognized role selected.");
-      }
-
+      
+      const destination = roleRedirects[user.role] || "/dashboard";
       navigate(destination);
+      toast.success("Login successful!");
     } catch (err) {
-      setFormError(err.message || "Something went wrong. Please try again.");
+      const msg = err.response?.data?.detail || err.message || "Login failed";
+      setFormError(msg);
+      toast.error(msg);
     } finally {
       setIsLoading(false);
     }
@@ -107,7 +102,11 @@ export default function LoginPage() {
             </p>
           </div>
 
-          <div className="bg-blue-900/40 backdrop-blur-md border border-blue-400/20 rounded-2xl p-6 mb-12">
+          <div className="mb-12">
+            <img src={Ruhuna} alt="Timetable Preview" className="w-full rounded-lg shadow-lg" />
+          </div>
+
+          {/* <div className="bg-blue-900/40 backdrop-blur-md border border-blue-400/20 rounded-2xl p-6 mb-12">
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-lg font-semibold">Week 06 · Semester 1</h3>
               <span className="bg-emerald-500/20 text-emerald-300 text-xs font-semibold px-3 py-1 rounded-full border border-emerald-400/40">
@@ -140,7 +139,7 @@ export default function LoginPage() {
                 </div>
               ))}
             </div>
-          </div>
+          </div> */}
 
           <div className="grid grid-cols-2 gap-4">
             {[
@@ -175,58 +174,27 @@ export default function LoginPage() {
 
           <form onSubmit={handleSubmit} className="space-y-6" noValidate>
             <div>
-              <label className="block text-sm font-semibold text-gray-900 mb-2">
-                Login As
-              </label>
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  type="button"
-                  onClick={() => setRole("student")}
-                  className={`py-3 rounded-lg border text-sm font-semibold transition ${
-                    role === "student"
-                      ? "bg-blue-600 text-white border-blue-600"
-                      : "bg-white text-gray-700 border-gray-200 hover:border-blue-300"
-                  }`}
-                >
-                  Student
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setRole("lecturer")}
-                  className={`py-3 rounded-lg border text-sm font-semibold transition ${
-                    role === "lecturer"
-                      ? "bg-blue-600 text-white border-blue-600"
-                      : "bg-white text-gray-700 border-gray-200 hover:border-blue-300"
-                  }`}
-                >
-                  Lecturer
-                </button>
-              </div>
-            </div>
-
-            <div>
-              <label htmlFor="email" className="block text-sm font-semibold text-gray-900 mb-2">
-                Email Address
+              <label htmlFor="username" className="block text-sm font-semibold text-gray-900 mb-2">
+                Username
               </label>
               <input
-                id="email"
-                type="email"
-                value={email}
+                id="username"
+                type="text"
+                value={username}
                 onChange={(e) => {
-                  setEmail(e.target.value);
-                  if (errors.email) setErrors((prev) => ({ ...prev, email: undefined }));
+                  setUsername(e.target.value);
+                  if (errors.username) setErrors((prev) => ({ ...prev, username: undefined }));
                 }}
-                placeholder="name@sci.ruh.ac.lk"
-                aria-invalid={Boolean(errors.email)}
+                placeholder="Enter your username"
+                aria-invalid={Boolean(errors.username)}
                 className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 bg-gray-50 ${
-                  errors.email
+                  errors.username
                     ? "border-red-400 focus:ring-red-400"
                     : "border-gray-200 focus:ring-blue-500"
                 }`}
               />
-              {errors.email && (
-                <p className="text-sm text-red-600 mt-1.5">{errors.email}</p>
+              {errors.username && (
+                <p className="text-sm text-red-600 mt-1.5">{errors.username}</p>
               )}
             </div>
 
@@ -295,10 +263,12 @@ export default function LoginPage() {
 
           <div className="mt-8 bg-blue-50 border border-blue-200 rounded-lg p-4 flex gap-3">
             <AlertCircle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
-            <p className="text-sm text-blue-900">
-              Student accounts are created by faculty administrators. New lecturers
-              may request an account after joining the faculty.
-            </p>
+            <div className="text-sm text-blue-900">
+              <p className="font-medium mb-2">Test Credentials:</p>
+              <p>Admin: <strong>admin</strong> / <strong>admin123</strong></p>
+              <p>Lecturer: <strong>j.smith</strong> / <strong>lecturer123</strong></p>
+              <p>Student: <strong>student1</strong> / <strong>student123</strong></p>
+            </div>
           </div>
 
           <p className="text-center text-sm text-gray-600 mt-8">
