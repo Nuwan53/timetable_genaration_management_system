@@ -29,7 +29,7 @@ import {
   CalendarCheck,
   LogOut,
 } from "lucide-react";
-import { dashboard, auth } from "../api";
+import { dashboard,courses, auth } from "../api";
 import toast from "react-hot-toast";
 import { useNavigate } from "react-router-dom";
 
@@ -44,6 +44,10 @@ export default function Dashboard() {
       try {
         const userStr = localStorage.getItem("user");
         if (userStr) setUser(JSON.parse(userStr));
+
+        const re = await courses.stats();
+        setStats(re.data);
+
         
         const response = await dashboard.stats();
         setStats(response.data);
