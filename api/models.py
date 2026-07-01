@@ -1,3 +1,4 @@
+from django.contrib.auth.models import User
 from django.db import models
 
 
@@ -92,3 +93,20 @@ class ScheduleSlot(models.Model):
 
     class Meta:
         ordering = ['timeslot__day', 'timeslot__start_time']
+
+
+class UserProfile(models.Model):
+    ROLE_CHOICES = [
+        ('ADMIN', 'Admin'),
+        ('LECTURER', 'Lecturer'),
+        ('STUDENT', 'Student'),
+    ]
+
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES)
+    lecturer = models.ForeignKey(Lecturer, on_delete=models.SET_NULL, null=True, blank=True, related_name='user_profiles')
+    student_group = models.ForeignKey(StudentGroup, on_delete=models.SET_NULL, null=True, blank=True, related_name='user_profiles')
+    must_change_password = models.BooleanField(default=False)
+
+    def __str__(self):
+        return f'{self.user.username} ({self.role})'

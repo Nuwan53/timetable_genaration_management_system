@@ -99,3 +99,12 @@ class ScheduleSlotWriteSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({'conflicts': errors})
 
         return data
+
+
+class AuthUserSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    username = serializers.CharField()
+    role = serializers.CharField()
+    must_change_password = serializers.BooleanField()
+    lecturer_id = serializers.IntegerField(required=False, allow_null=True)
+    student_group_id = serializers.IntegerField(required=False, allow_null=True)

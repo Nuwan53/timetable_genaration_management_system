@@ -8,6 +8,8 @@ import ProtectedRoute from './components/ProtectedRoute';
 
 import Login      from './pages/Login';
 import Dashboard  from './pages/Dashboard';
+import StudentDashboard from './pages/StudentDashboard';
+import LecturerDashboard from './pages/LecturerDashboard';
 import Courses    from './pages/Courses';
 import Lecturers  from './pages/Lecturers';
 import Venues     from './pages/Venues';
@@ -26,7 +28,7 @@ const nav = [
 ];
 
 const pageTitle = {
-  '/': 'Dashboard', '/timetable': 'Timetable', '/courses': 'Courses',
+  '/': 'Dashboard', '/student': 'Dashboard', '/lecturer': 'Dashboard', '/timetable': 'Timetable', '/courses': 'Courses',
   '/lecturers': 'Lecturers', '/venues': 'Venues',
   '/groups': 'Student Groups', '/timeslots': 'Time Slots',
 };
@@ -34,6 +36,7 @@ const pageTitle = {
 function AppShell() {
   const { user, logout } = useAuth();
   const visibleNav = nav.filter(n => n.roles.includes(user.role));
+  const HomePage = user.role === 'ADMIN' ? Dashboard : user.role === 'LECTURER' ? LecturerDashboard : StudentDashboard;
 
   return (
     <div className="app-shell">
@@ -71,7 +74,9 @@ function AppShell() {
         </div>
         <div className="content">
           <Routes>
-            <Route path="/"           element={<Dashboard/>}/>
+            <Route path="/"           element={<HomePage/>}/>
+            <Route path="/student"    element={<StudentDashboard/>}/>
+            <Route path="/lecturer"   element={<LecturerDashboard/>}/>
             <Route path="/timetable"  element={<Timetable/>}/>
             <Route path="/courses"    element={<ProtectedRoute allow={['ADMIN']}><Courses/></ProtectedRoute>}/>
             <Route path="/lecturers"  element={<ProtectedRoute allow={['ADMIN']}><Lecturers/></ProtectedRoute>}/>

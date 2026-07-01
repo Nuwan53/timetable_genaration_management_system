@@ -32,11 +32,8 @@ export default function Login() {
       const user = await login(username.trim(), password, role);
       toast.success(`Welcome, ${user.username}`);
 
-      if (user.must_change_password) {
-        navigate('/change-password', { replace: true });
-        return;
-      }
-      const dest = location.state?.from || '/';
+      const defaultDest = user.role === 'ADMIN' ? '/' : user.role === 'LECTURER' ? '/lecturer' : '/student';
+      const dest = location.state?.from || defaultDest;
       navigate(dest, { replace: true });
     } catch (err) {
       const msg = err?.response?.data?.detail || 'Invalid credentials';
@@ -106,7 +103,7 @@ export default function Login() {
         </form>
 
         <p className="login-note">
-          Don't have credentials? Contact your administrator — accounts are issued by the system admin.
+          Sample accounts: admin / Admin@123, lecturer / Lecturer@123, student / Student@123.
         </p>
       </div>
     </div>

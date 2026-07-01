@@ -1,13 +1,18 @@
-from rest_framework import viewsets, status
-from rest_framework.decorators import action
-from rest_framework.response import Response
+import secrets
+
+from django.contrib.auth import authenticate
+from django.contrib.auth.models import User
 from django.http import HttpResponse
 from django.db.models import Q
+from rest_framework import viewsets, status
+from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.response import Response
 from .models import Course, Lecturer, Venue, StudentGroup, TimeSlot, ScheduleSlot
 from .serializers import (
     CourseSerializer, LecturerSerializer, VenueSerializer,
     StudentGroupSerializer, TimeSlotSerializer,
     ScheduleSlotReadSerializer, ScheduleSlotWriteSerializer,
+    AuthUserSerializer,
 )
 
 # ── PDF export ───────────────────────────────────────────────────────────────
@@ -21,6 +26,43 @@ import io
 DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
 TIMES = ['08:00', '09:00', '10:00', '11:00', '12:00', '13:00',
          '14:00', '15:00', '16:00', '17:00']
+
+
+def serialize_user(user):
+    profile = getattr(user, 'profile', None)
+    payload = {
+        'id': user.id,
+        'username': user.username,
+        'role': profile.role if profile else 'ADMIN',
+        'must_change_password': profile.must_change_password if profile else False,
+    }
+    if profile and profile.lecturer_id:
+        payload['lecturer_id'] = profile.lecturer_id
+    if profile and profile.student_group_id:
+        payload['student_group_id'] = profile.student_group_id
+    return payload
+
+
+@api_view(['POST'])
+@permission_classes([])
+def auth_login(request):
+    username = str(request.data.get('username', '')).strip()
+    password = str(request.data.get('password', ''))
+    role = str(request.data.get('role', '')).upper().strip()
+
+    user = authenticate(request, username=username, password=password)
+    if not user:
+        return Response({'detail': 'Invalid credentials'}, status=status.HTTP_400_BAD_REQUEST)
+
+    profile = getattr(user, 'profile', None)
+    actual_role = profile.role if profile else 'ADMIN'
+    if role and role != actual_role:
+        return Response({'detail': 'Role does not match this account'}, status=status.HTTP_400_BAD_REQUEST)
+
+    return Response({
+        'token': secrets.token_urlsafe(32),
+        'user': serialize_user(user),
+    })
 
 
 class CourseViewSet(viewsets.ModelViewSet):
@@ -72,6 +114,8 @@ class ScheduleSlotViewSet(viewsets.ModelViewSet):
             qs = qs.filter(semester=semester)
         if lecturer := params.get('lecturer'):
             qs = qs.filter(lecturer_id=lecturer)
+        if group := params.get('group'):
+            qs = qs.filter(group_id=group)
 
         return qs
 

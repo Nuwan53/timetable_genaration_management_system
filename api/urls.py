@@ -1,6 +1,10 @@
 from rest_framework.routers import DefaultRouter
-from .views import (CourseViewSet, LecturerViewSet, VenueViewSet,
-                    StudentGroupViewSet, TimeSlotViewSet, ScheduleSlotViewSet)
+from django.urls import path
+from .views import (
+    CourseViewSet, LecturerViewSet, VenueViewSet,
+    StudentGroupViewSet, TimeSlotViewSet, ScheduleSlotViewSet,
+    auth_login,
+)
 
 router = DefaultRouter()
 router.register(r'courses', CourseViewSet)
@@ -10,4 +14,8 @@ router.register(r'groups', StudentGroupViewSet)
 router.register(r'timeslots', TimeSlotViewSet)
 router.register(r'slots', ScheduleSlotViewSet)
 
-urlpatterns = router.urls
+urlpatterns = [
+    path('auth/login/', auth_login),
+]
+
+urlpatterns += router.urls
