@@ -1,6 +1,6 @@
-import { BrowserRouter, Routes, Route, NavLink, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
-import { LayoutDashboard, BookOpen, Users, MapPin, Clock, CalendarDays, LayoutGrid, LogOut } from 'lucide-react';
+import { LayoutDashboard, BookOpen, Users, MapPin, Clock, CalendarDays, LayoutGrid, LogOut, Search, Bell, ChevronRight } from 'lucide-react';
 import './index.css';
 
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -35,17 +35,19 @@ const pageTitle = {
 
 function AppShell() {
   const { user, logout } = useAuth();
+  const { pathname } = useLocation();
   const visibleNav = nav.filter(n => n.roles.includes(user.role));
   const HomePage = user.role === 'ADMIN' ? Dashboard : user.role === 'LECTURER' ? LecturerDashboard : StudentDashboard;
+  const currentTitle = pageTitle[pathname] || 'Dashboard';
 
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <div className="sidebar-logo">
-          <span>📅</span>
+        <div className="sidebar-brand">
+          <div className="sidebar-brand-mark">FS</div>
           <div>
-            <div>Timetable</div>
-            <div style={{fontSize:10,opacity:.5,fontWeight:400}}>Management System</div>
+            <div className="sidebar-brand-title">Faculty of Science</div>
+            <div className="sidebar-brand-subtitle">Timetable System</div>
           </div>
         </div>
         <nav>
@@ -56,7 +58,15 @@ function AppShell() {
           ))}
         </nav>
         <div className="sidebar-footer">
-          <div style={{marginBottom:8}}>{user.username} · {user.role}</div>
+          <a className="sidebar-footer-link" href="#">Help Center</a>
+          <a className="sidebar-footer-link" href="#">Settings</a>
+          <div className="sidebar-userchip">
+            <div className="sidebar-user-avatar">{String(user.username || 'U').slice(0, 1).toUpperCase()}</div>
+            <div>
+              <div className="sidebar-user-name">{user.username}</div>
+              <div className="sidebar-user-role">{user.role}</div>
+            </div>
+          </div>
           <button className="logout-btn" onClick={logout}>
             <LogOut size={14}/> Logout
           </button>
@@ -65,14 +75,31 @@ function AppShell() {
 
       <div className="main">
         <div className="topbar">
-          <Routes>
-            {Object.entries(pageTitle).map(([path, title]) => (
-              <Route key={path} path={path} element={<h1>{title}</h1>}/>
-            ))}
-          </Routes>
-          <span style={{fontSize:12,color:'#94a3b8'}}>S2 · 2026</span>
+          <div className="topbar-left">
+            <div className="topbar-title">Timetable Manager</div>
+            <div className="topbar-search">
+              <Search size={16} />
+              <input type="text" placeholder="Search sessions..." aria-label="Search sessions" />
+            </div>
+          </div>
+          <div className="topbar-right">
+            <button className="topbar-link" type="button">Current Semester</button>
+            <button className="topbar-link" type="button">Exam Period</button>
+            <button className="topbar-link" type="button">Archives</button>
+            <span className="topbar-divider" />
+            <button className="icon-btn" type="button" aria-label="Notifications"><Bell size={16} /></button>
+            <div className="topbar-avatar">{String(user.username || 'U').slice(0, 1).toUpperCase()}</div>
+          </div>
         </div>
         <div className="content">
+          <div className="page-header">
+            <div className="page-header-title">{currentTitle}</div>
+            <div className="page-header-breadcrumb">
+              <span>Faculty of Science</span>
+              <ChevronRight size={12} />
+              <span>{currentTitle}</span>
+            </div>
+          </div>
           <Routes>
             <Route path="/"           element={<HomePage/>}/>
             <Route path="/student"    element={<StudentDashboard/>}/>
