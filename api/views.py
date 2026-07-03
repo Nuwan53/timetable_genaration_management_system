@@ -5,14 +5,17 @@ from django.contrib.auth.models import User
 from django.http import HttpResponse
 from django.db.models import Q
 from rest_framework import viewsets, status
+from rest_framework.permissions import AllowAny
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
-from .models import Course, Lecturer, Venue, StudentGroup, TimeSlot, ScheduleSlot
+from rest_framework_simplejwt.tokens import RefreshToken
+from .models import Course, Lecturer, Venue, StudentGroup, TimeSlot, ScheduleSlot, LecturerRequest, LecturerNotification
 from .serializers import (
     CourseSerializer, LecturerSerializer, VenueSerializer,
     StudentGroupSerializer, TimeSlotSerializer,
     ScheduleSlotReadSerializer, ScheduleSlotWriteSerializer,
     AuthUserSerializer,
+    LecturerProfileSerializer, LecturerRequestSerializer, LecturerNotificationSerializer,
 )
 
 # ── PDF export ───────────────────────────────────────────────────────────────
@@ -44,7 +47,7 @@ def serialize_user(user):
 
 
 @api_view(['POST'])
-@permission_classes([])
+@permission_classes([AllowAny])
 def auth_login(request):
     username = str(request.data.get('username', '')).strip()
     password = str(request.data.get('password', ''))
@@ -59,8 +62,11 @@ def auth_login(request):
     if role and role != actual_role:
         return Response({'detail': 'Role does not match this account'}, status=status.HTTP_400_BAD_REQUEST)
 
+    refresh = RefreshToken.for_user(user)
+
     return Response({
-        'token': secrets.token_urlsafe(32),
+        'token': str(refresh.access_token),
+        'refresh': str(refresh),
         'user': serialize_user(user),
     })
 
@@ -73,6 +79,25 @@ class CourseViewSet(viewsets.ModelViewSet):
 class LecturerViewSet(viewsets.ModelViewSet):
     queryset = Lecturer.objects.all()
     serializer_class = LecturerSerializer
+
+
+class LecturerMeViewSet(viewsets.ViewSet):
+    def list(self, request):
+        profile = getattr(request.user, 'profile', None)
+        lecturer = profile.lecturer if profile else None
+        if lecturer is None:
+            return Response({'detail': 'Lecturer profile not found'}, status=status.HTTP_404_NOT_FOUND)
+        return Response(LecturerProfileSerializer(lecturer).data)
+
+    def update(self, request):
+        profile = getattr(request.user, 'profile', None)
+        lecturer = profile.lecturer if profile else None
+        if lecturer is None:
+            return Response({'detail': 'Lecturer profile not found'}, status=status.HTTP_404_NOT_FOUND)
+        serializer = LecturerProfileSerializer(lecturer, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
 
 
 class VenueViewSet(viewsets.ModelViewSet):
@@ -118,6 +143,44 @@ class ScheduleSlotViewSet(viewsets.ModelViewSet):
             qs = qs.filter(group_id=group)
 
         return qs
+
+
+class LecturerScheduleViewSet(viewsets.ReadOnlyModelViewSet):
+    serializer_class = ScheduleSlotReadSerializer
+
+    def get_queryset(self):
+        profile = getattr(self.request.user, 'profile', None)
+        lecturer = profile.lecturer if profile else None
+        if lecturer is None:
+            return ScheduleSlot.objects.none()
+        return ScheduleSlot.objects.select_related('timeslot', 'course', 'lecturer', 'venue', 'group').filter(lecturer=lecturer)
+
+
+class LecturerRequestViewSet(viewsets.ModelViewSet):
+    serializer_class = LecturerRequestSerializer
+
+    def get_queryset(self):
+        profile = getattr(self.request.user, 'profile', None)
+        lecturer = profile.lecturer if profile else None
+        if lecturer is None:
+            return LecturerRequest.objects.none()
+        return LecturerRequest.objects.select_related('lecturer', 'schedule_slot', 'reviewed_by').filter(lecturer=lecturer)
+
+    def perform_create(self, serializer):
+        profile = getattr(self.request.user, 'profile', None)
+        lecturer = profile.lecturer if profile else None
+        serializer.save(lecturer=lecturer)
+
+
+class LecturerNotificationViewSet(viewsets.ReadOnlyModelViewSet):
+    serializer_class = LecturerNotificationSerializer
+
+    def get_queryset(self):
+        profile = getattr(self.request.user, 'profile', None)
+        lecturer = profile.lecturer if profile else None
+        if lecturer is None:
+            return LecturerNotification.objects.none()
+        return LecturerNotification.objects.select_related('lecturer', 'schedule_slot').filter(lecturer=lecturer)
 
     @action(detail=False, methods=['get'], url_path='export-pdf')
     def export_pdf(self, request):

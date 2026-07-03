@@ -95,6 +95,57 @@ class ScheduleSlot(models.Model):
         ordering = ['timeslot__day', 'timeslot__start_time']
 
 
+class LecturerRequest(models.Model):
+    REQUEST_TYPES = [
+        ('AVAILABILITY', 'Availability / Leave'),
+        ('CHANGE', 'Change Request'),
+    ]
+    STATUS_CHOICES = [
+        ('PENDING', 'Pending'),
+        ('APPROVED', 'Approved'),
+        ('REJECTED', 'Rejected'),
+    ]
+
+    lecturer = models.ForeignKey(Lecturer, on_delete=models.CASCADE, related_name='requests')
+    request_type = models.CharField(max_length=20, choices=REQUEST_TYPES)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
+    schedule_slot = models.ForeignKey(ScheduleSlot, on_delete=models.SET_NULL, null=True, blank=True, related_name='lecturer_requests')
+    requested_date = models.DateField(null=True, blank=True)
+    requested_start = models.TimeField(null=True, blank=True)
+    requested_end = models.TimeField(null=True, blank=True)
+    requested_room = models.CharField(max_length=30, blank=True)
+    reason = models.TextField(blank=True)
+    admin_note = models.TextField(blank=True)
+    reviewed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='reviewed_lecturer_requests')
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f'{self.lecturer.name} - {self.request_type} - {self.status}'
+
+
+class LecturerNotification(models.Model):
+    NOTIFICATION_TYPES = [
+        ('CHANGE', 'Schedule Change'),
+        ('CANCEL', 'Cancellation'),
+        ('REASSIGN', 'Reassignment'),
+        ('CONFLICT', 'Conflict Warning'),
+        ('REQUEST', 'Request Update'),
+    ]
+
+    lecturer = models.ForeignKey(Lecturer, on_delete=models.CASCADE, related_name='notifications')
+    notification_type = models.CharField(max_length=20, choices=NOTIFICATION_TYPES)
+    title = models.CharField(max_length=150)
+    message = models.TextField()
+    schedule_slot = models.ForeignKey(ScheduleSlot, on_delete=models.SET_NULL, null=True, blank=True, related_name='notifications')
+    is_read = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f'{self.lecturer.name} - {self.title}'
+
+
 class UserProfile(models.Model):
     ROLE_CHOICES = [
         ('ADMIN', 'Admin'),

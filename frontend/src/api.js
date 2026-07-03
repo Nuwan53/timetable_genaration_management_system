@@ -20,3 +20,14 @@ export const slots = {
   remove: id => api.delete(`/slots/${id}/`),
   exportPdf: (params) => api.get('/slots/export-pdf/', { params, responseType: 'blob' }),
 };
+
+export const lecturerApi = {
+  me: () => api.get('/lecturer/me/'),
+  updateMe: (data) => api.patch('/lecturer/me/', data),
+  schedule: (params) => api.get('/lecturer/schedule/', { params }),
+  requests: {
+    list: () => api.get('/lecturer/requests/'),
+    create: (data) => api.post('/lecturer/requests/', data),
+  },
+  notifications: () => api.get('/lecturer/notifications/'),
+};

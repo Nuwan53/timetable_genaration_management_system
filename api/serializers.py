@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Course, Lecturer, Venue, StudentGroup, TimeSlot, ScheduleSlot
+from .models import Course, Lecturer, Venue, StudentGroup, TimeSlot, ScheduleSlot, LecturerRequest, LecturerNotification
 
 
 class CourseSerializer(serializers.ModelSerializer):
@@ -108,3 +108,23 @@ class AuthUserSerializer(serializers.Serializer):
     must_change_password = serializers.BooleanField()
     lecturer_id = serializers.IntegerField(required=False, allow_null=True)
     student_group_id = serializers.IntegerField(required=False, allow_null=True)
+
+
+class LecturerProfileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Lecturer
+        fields = ['id', 'name', 'email', 'department']
+
+
+class LecturerRequestSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = LecturerRequest
+        fields = '__all__'
+        read_only_fields = ['lecturer', 'status', 'reviewed_by', 'reviewed_at', 'created_at', 'updated_at']
+
+
+class LecturerNotificationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = LecturerNotification
+        fields = '__all__'
+        read_only_fields = ['lecturer', 'notification_type', 'title', 'message', 'schedule_slot', 'is_read', 'created_at']
