@@ -1,4 +1,5 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+/* eslint-disable react-refresh/only-export-components */
+import { createContext, useContext, useState } from 'react';
 import axios from 'axios';
 
 const AuthContext = createContext(null);
@@ -12,14 +13,11 @@ api.interceptors.request.use((config) => {
 });
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
+  const [user, setUser] = useState(() => {
     const stored = localStorage.getItem('tms_user');
-    if (stored) setUser(JSON.parse(stored));
-    setLoading(false);
-  }, []);
+    return stored ? JSON.parse(stored) : null;
+  });
+  const loading = false;
 
   const login = async (username, password, role) => {
     const { data } = await api.post('/auth/login/', { username, password, role });
@@ -35,8 +33,18 @@ export function AuthProvider({ children }) {
     setUser(null);
   };
 
+  const updateUser = (nextUser) => {
+    setUser((current) => {
+      const merged = typeof nextUser === 'function' ? nextUser(current) : { ...current, ...nextUser };
+      if (merged) {
+        localStorage.setItem('tms_user', JSON.stringify(merged));
+      }
+      return merged;
+    });
+  };
+
   return (
-    <AuthContext.Provider value={{ user, setUser, login, logout, loading }}>
+    <AuthContext.Provider value={{ user, setUser, updateUser, login, logout, loading }}>
       {children}
     </AuthContext.Provider>
   );

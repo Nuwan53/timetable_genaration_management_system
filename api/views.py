@@ -4,18 +4,22 @@ from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from django.http import HttpResponse
 from django.db.models import Q
+from django.utils import timezone
 from rest_framework import viewsets, status
 from rest_framework.permissions import AllowAny
 from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
+from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
-from .models import Course, Lecturer, Venue, StudentGroup, TimeSlot, ScheduleSlot, LecturerRequest, LecturerNotification
+from .models import Course, Lecturer, Venue, StudentGroup, TimeSlot, ScheduleSlot, LecturerRequest, LecturerNotification, Announcement, StudentNotification
 from .serializers import (
     CourseSerializer, LecturerSerializer, VenueSerializer,
     StudentGroupSerializer, TimeSlotSerializer,
     ScheduleSlotReadSerializer, ScheduleSlotWriteSerializer,
     AuthUserSerializer,
-    LecturerProfileSerializer, LecturerRequestSerializer, LecturerNotificationSerializer,
+    StudentProfileSerializer, LecturerProfileSerializer, LecturerRequestSerializer, LecturerNotificationSerializer,
+    AnnouncementSerializer, StudentNotificationSerializer,
 )
 
 # ── PDF export ───────────────────────────────────────────────────────────────
@@ -31,7 +35,7 @@ TIMES = ['08:00', '09:00', '10:00', '11:00', '12:00', '13:00',
          '14:00', '15:00', '16:00', '17:00']
 
 
-def serialize_user(user):
+def serialize_user(user, request=None):
     profile = getattr(user, 'profile', None)
     payload = {
         'id': user.id,
@@ -43,7 +47,67 @@ def serialize_user(user):
         payload['lecturer_id'] = profile.lecturer_id
     if profile and profile.student_group_id:
         payload['student_group_id'] = profile.student_group_id
+    if profile:
+        payload['name'] = user.get_full_name().strip() or user.username
+        payload['email'] = user.email
+        payload['contact_number'] = profile.contact_number or ''
+        payload['registration_number'] = profile.registration_number or ''
+        payload['avatar_url'] = request.build_absolute_uri(profile.avatar.url) if request and profile.avatar else None
     return payload
+
+
+def get_student_profile(request):
+    profile = getattr(request.user, 'profile', None)
+    if profile is None or profile.role != 'STUDENT':
+        return None
+    return profile
+
+
+def build_student_dashboard(profile, request, semester='S2-2026'):
+    slots = ScheduleSlot.objects.select_related('timeslot', 'course', 'lecturer', 'venue', 'group').filter(group=profile.student_group)
+    if semester:
+        slots = slots.filter(semester=semester)
+    slots = list(slots)
+
+    now = timezone.localtime()
+    today_name = now.strftime('%A')
+    current_time = now.time()
+
+    todays_slots = [slot for slot in slots if slot.timeslot.day == today_name]
+    todays_remaining = [slot for slot in todays_slots if slot.timeslot.end_time >= current_time]
+    todays_remaining.sort(key=lambda slot: slot.timeslot.start_time)
+
+    total_minutes = 0
+    course_ids = set()
+    for slot in slots:
+        start_minutes = slot.timeslot.start_time.hour * 60 + slot.timeslot.start_time.minute
+        end_minutes = slot.timeslot.end_time.hour * 60 + slot.timeslot.end_time.minute
+        total_minutes += max(0, end_minutes - start_minutes)
+        course_ids.add(slot.course_id)
+
+    announcements = Announcement.objects.select_related('student_group').filter(
+        Q(audience='FACULTY') |
+        Q(audience='BATCH', student_group=profile.student_group) |
+        Q(audience='GROUP', student_group=profile.student_group)
+    ).order_by('-published_at')[:10]
+
+    notifications = StudentNotification.objects.select_related('student_group', 'schedule_slot', 'schedule_slot__course', 'schedule_slot__timeslot', 'schedule_slot__venue').filter(
+        student_group=profile.student_group
+    ).order_by('-created_at')[:10]
+
+    return {
+        'profile': StudentProfileSerializer(profile, context={'request': request}).data,
+        'stats': {
+            'classes_today': len(todays_slots),
+            'weekly_hours': round(total_minutes / 60, 1),
+            'subjects_enrolled': len(course_ids),
+        },
+        'timetable': ScheduleSlotReadSerializer(slots, many=True).data,
+        'todays_remaining': ScheduleSlotReadSerializer(todays_remaining, many=True).data,
+        'notifications': StudentNotificationSerializer(notifications, many=True).data,
+        'announcements': AnnouncementSerializer(announcements, many=True).data,
+        'today_name': today_name,
+    }
 
 
 @api_view(['POST'])
@@ -67,7 +131,7 @@ def auth_login(request):
     return Response({
         'token': str(refresh.access_token),
         'refresh': str(refresh),
-        'user': serialize_user(user),
+        'user': serialize_user(user, request=request),
     })
 
 
@@ -274,3 +338,33 @@ class LecturerNotificationViewSet(viewsets.ReadOnlyModelViewSet):
         response = HttpResponse(buffer, content_type='application/pdf')
         response['Content-Disposition'] = f'attachment; filename="{filename}"'
         return response
+
+
+class StudentDashboardView(APIView):
+    def get(self, request):
+        profile = get_student_profile(request)
+        if profile is None:
+            return Response({'detail': 'Student profile not found'}, status=status.HTTP_403_FORBIDDEN)
+
+        semester = request.query_params.get('semester', 'S2-2026')
+        return Response(build_student_dashboard(profile, request, semester=semester))
+
+
+class StudentProfileView(APIView):
+    parser_classes = [MultiPartParser, FormParser]
+
+    def get(self, request):
+        profile = get_student_profile(request)
+        if profile is None:
+            return Response({'detail': 'Student profile not found'}, status=status.HTTP_403_FORBIDDEN)
+        return Response(StudentProfileSerializer(profile, context={'request': request}).data)
+
+    def patch(self, request):
+        profile = get_student_profile(request)
+        if profile is None:
+            return Response({'detail': 'Student profile not found'}, status=status.HTTP_403_FORBIDDEN)
+
+        serializer = StudentProfileSerializer(profile, data=request.data, partial=True, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(StudentProfileSerializer(profile, context={'request': request}).data)

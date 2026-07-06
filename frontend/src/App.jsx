@@ -39,6 +39,7 @@ function AppShell() {
   const visibleNav = nav.filter(n => n.roles.includes(user.role));
   const HomePage = user.role === 'ADMIN' ? Dashboard : user.role === 'LECTURER' ? LecturerDashboard : StudentDashboard;
   const currentTitle = pageTitle[pathname] || 'Dashboard';
+  const avatarFallback = String(user.username || 'U').slice(0, 1).toUpperCase();
 
   return (
     <div className="app-shell">
@@ -61,7 +62,9 @@ function AppShell() {
           <a className="sidebar-footer-link" href="#">Help Center</a>
           <a className="sidebar-footer-link" href="#">Settings</a>
           <div className="sidebar-userchip">
-            <div className="sidebar-user-avatar">{String(user.username || 'U').slice(0, 1).toUpperCase()}</div>
+            <div className="sidebar-user-avatar" style={{ overflow: 'hidden' }}>
+              {user.avatar_url ? <img src={user.avatar_url} alt="Profile avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : avatarFallback}
+            </div>
             <div>
               <div className="sidebar-user-name">{user.username}</div>
               <div className="sidebar-user-role">{user.role}</div>
@@ -88,7 +91,9 @@ function AppShell() {
             <button className="topbar-link" type="button">Archives</button>
             <span className="topbar-divider" />
             <button className="icon-btn" type="button" aria-label="Notifications"><Bell size={16} /></button>
-            <div className="topbar-avatar">{String(user.username || 'U').slice(0, 1).toUpperCase()}</div>
+            <div className="topbar-avatar" style={{ overflow: 'hidden' }}>
+              {user.avatar_url ? <img src={user.avatar_url} alt="Profile avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : avatarFallback}
+            </div>
           </div>
         </div>
         <div className="content">

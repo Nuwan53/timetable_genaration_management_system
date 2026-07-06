@@ -5,6 +5,7 @@ from .views import (
     StudentGroupViewSet, TimeSlotViewSet, ScheduleSlotViewSet,
     auth_login, LecturerMeViewSet, LecturerScheduleViewSet,
     LecturerRequestViewSet, LecturerNotificationViewSet,
+    StudentDashboardView, StudentProfileView,
 )
 
 router = DefaultRouter()
@@ -17,6 +18,8 @@ router.register(r'slots', ScheduleSlotViewSet)
 
 urlpatterns = [
     path('auth/login/', auth_login),
+    path('student/dashboard/', StudentDashboardView.as_view()),
+    path('student/profile/', StudentProfileView.as_view()),
     path('lecturer/me/', LecturerMeViewSet.as_view({'get': 'list', 'put': 'update', 'patch': 'update'})),
     path('lecturer/schedule/', LecturerScheduleViewSet.as_view({'get': 'list'})),
     path('lecturer/requests/', LecturerRequestViewSet.as_view({'get': 'list', 'post': 'create'})),

@@ -5,7 +5,7 @@ from django.dispatch import receiver
 from .models import Lecturer, StudentGroup, UserProfile
 
 
-def ensure_user(username, password, role, *, lecturer=None, student_group=None, is_superuser=False):
+def ensure_user(username, password, role, *, lecturer=None, student_group=None, registration_number=None, contact_number=None, is_superuser=False):
     user, created = User.objects.get_or_create(username=username, defaults={'is_staff': is_superuser, 'is_superuser': is_superuser})
     if created or not user.check_password(password):
         user.set_password(password)
@@ -17,6 +17,8 @@ def ensure_user(username, password, role, *, lecturer=None, student_group=None, 
         'role': role,
         'lecturer': lecturer,
         'student_group': student_group,
+        'registration_number': registration_number,
+        'contact_number': contact_number,
         'must_change_password': False,
     }
     UserProfile.objects.update_or_create(user=user, defaults=profile_defaults)
@@ -37,4 +39,4 @@ def seed_demo_accounts(sender, **kwargs):
 
     ensure_user('admin', 'Admin@123', 'ADMIN', is_superuser=True)
     ensure_user('lecturer', 'Lecturer@123', 'LECTURER', lecturer=lecturer)
-    ensure_user('student', 'Student@123', 'STUDENT', student_group=student_group)
+    ensure_user('student', 'Student@123', 'STUDENT', student_group=student_group, registration_number='REG-2026-001', contact_number='0712345678')

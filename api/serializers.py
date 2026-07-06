@@ -1,5 +1,8 @@
 from rest_framework import serializers
-from .models import Course, Lecturer, Venue, StudentGroup, TimeSlot, ScheduleSlot, LecturerRequest, LecturerNotification
+from .models import (
+    Course, Lecturer, Venue, StudentGroup, TimeSlot, ScheduleSlot,
+    LecturerRequest, LecturerNotification, Announcement, StudentNotification,
+)
 
 
 class CourseSerializer(serializers.ModelSerializer):
@@ -110,6 +113,88 @@ class AuthUserSerializer(serializers.Serializer):
     student_group_id = serializers.IntegerField(required=False, allow_null=True)
 
 
+class StudentProfileSerializer(serializers.Serializer):
+    name = serializers.CharField(required=False, allow_blank=True)
+    email = serializers.EmailField(required=False)
+    contact_number = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    avatar = serializers.FileField(required=False, allow_null=True)
+    registration_number = serializers.CharField(read_only=True)
+    student_group = StudentGroupSerializer(read_only=True)
+    student_group_id = serializers.IntegerField(read_only=True)
+    avatar_url = serializers.CharField(read_only=True)
+    enrolled_subjects = serializers.ListField(read_only=True)
+
+    def to_representation(self, instance):
+        request = self.context.get('request')
+        user = instance.user
+
+        avatar_url = None
+        if instance.avatar:
+            avatar_url = instance.avatar.url
+            if request is not None:
+                avatar_url = request.build_absolute_uri(avatar_url)
+
+        subjects = []
+        seen_course_ids = set()
+        if instance.student_group_id:
+            slots = ScheduleSlot.objects.select_related('course').filter(group=instance.student_group).order_by('course__code', 'course__name')
+            for slot in slots:
+                if slot.course_id in seen_course_ids:
+                    continue
+                seen_course_ids.add(slot.course_id)
+                subjects.append(CourseSerializer(slot.course).data)
+
+        return {
+            'name': user.get_full_name().strip() or user.username,
+            'email': user.email,
+            'contact_number': instance.contact_number or '',
+            'registration_number': instance.registration_number or '',
+            'student_group': StudentGroupSerializer(instance.student_group).data if instance.student_group else None,
+            'student_group_id': instance.student_group_id,
+            'avatar_url': avatar_url,
+            'enrolled_subjects': subjects,
+        }
+
+    def validate_avatar(self, value):
+        allowed_types = {'image/jpeg', 'image/png'}
+        content_type = getattr(value, 'content_type', '')
+        filename = value.name.lower()
+
+        if value.size > 2 * 1024 * 1024:
+            raise serializers.ValidationError('Avatar must be 2 MB or smaller.')
+
+        if content_type not in allowed_types and not filename.endswith(('.jpg', '.jpeg', '.png')):
+            raise serializers.ValidationError('Avatar must be a JPG or PNG image.')
+
+        return value
+
+    def update(self, instance, validated_data):
+        name = validated_data.pop('name', None)
+        email = validated_data.pop('email', None)
+        contact_number = validated_data.pop('contact_number', None)
+        avatar = validated_data.pop('avatar', None)
+
+        user = instance.user
+
+        if name is not None:
+            parts = [part for part in str(name).split() if part]
+            user.first_name = parts[0] if parts else ''
+            user.last_name = ' '.join(parts[1:]) if len(parts) > 1 else ''
+
+        if email is not None:
+            user.email = email
+
+        if contact_number is not None:
+            instance.contact_number = contact_number
+
+        if avatar is not None:
+            instance.avatar = avatar
+
+        user.save(update_fields=['first_name', 'last_name', 'email'])
+        instance.save(update_fields=['contact_number', 'avatar'])
+        return instance
+
+
 class LecturerProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = Lecturer
@@ -128,3 +213,20 @@ class LecturerNotificationSerializer(serializers.ModelSerializer):
         model = LecturerNotification
         fields = '__all__'
         read_only_fields = ['lecturer', 'notification_type', 'title', 'message', 'schedule_slot', 'is_read', 'created_at']
+
+
+class AnnouncementSerializer(serializers.ModelSerializer):
+    student_group = StudentGroupSerializer(read_only=True)
+
+    class Meta:
+        model = Announcement
+        fields = '__all__'
+
+
+class StudentNotificationSerializer(serializers.ModelSerializer):
+    student_group = StudentGroupSerializer(read_only=True)
+    schedule_slot = ScheduleSlotReadSerializer(read_only=True)
+
+    class Meta:
+        model = StudentNotification
+        fields = '__all__'

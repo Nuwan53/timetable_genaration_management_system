@@ -146,6 +146,43 @@ class LecturerNotification(models.Model):
         return f'{self.lecturer.name} - {self.title}'
 
 
+class Announcement(models.Model):
+    AUDIENCE_CHOICES = [
+        ('FACULTY', 'Faculty-wide'),
+        ('BATCH', 'Batch-wide'),
+        ('GROUP', 'Student group'),
+    ]
+
+    title = models.CharField(max_length=150)
+    message = models.TextField()
+    audience = models.CharField(max_length=20, choices=AUDIENCE_CHOICES, default='FACULTY')
+    student_group = models.ForeignKey(StudentGroup, on_delete=models.CASCADE, null=True, blank=True, related_name='announcements')
+    published_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.title
+
+
+class StudentNotification(models.Model):
+    NOTIFICATION_TYPES = [
+        ('RESCHEDULE', 'Class reschedule'),
+        ('CANCEL', 'Class cancellation'),
+        ('ROOM_CHANGE', 'Room change'),
+        ('GENERAL', 'General notice'),
+    ]
+
+    student_group = models.ForeignKey(StudentGroup, on_delete=models.CASCADE, related_name='student_notifications')
+    notification_type = models.CharField(max_length=20, choices=NOTIFICATION_TYPES)
+    title = models.CharField(max_length=150)
+    message = models.TextField()
+    schedule_slot = models.ForeignKey(ScheduleSlot, on_delete=models.SET_NULL, null=True, blank=True, related_name='student_notifications')
+    is_read = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f'{self.student_group} - {self.title}'
+
+
 class UserProfile(models.Model):
     ROLE_CHOICES = [
         ('ADMIN', 'Admin'),
@@ -157,6 +194,9 @@ class UserProfile(models.Model):
     role = models.CharField(max_length=20, choices=ROLE_CHOICES)
     lecturer = models.ForeignKey(Lecturer, on_delete=models.SET_NULL, null=True, blank=True, related_name='user_profiles')
     student_group = models.ForeignKey(StudentGroup, on_delete=models.SET_NULL, null=True, blank=True, related_name='user_profiles')
+    registration_number = models.CharField(max_length=50, blank=True, null=True, unique=True)
+    contact_number = models.CharField(max_length=30, blank=True, null=True)
+    avatar = models.FileField(upload_to='student_avatars/', blank=True, null=True)
     must_change_password = models.BooleanField(default=False)
 
     def __str__(self):

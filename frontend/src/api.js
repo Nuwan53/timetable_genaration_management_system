@@ -31,3 +31,11 @@ export const lecturerApi = {
   },
   notifications: () => api.get('/lecturer/notifications/'),
 };
+
+export const studentApi = {
+  dashboard: (params) => api.get('/student/dashboard/', { params }),
+  profile: {
+    me: () => api.get('/student/profile/'),
+    updateMe: (data) => api.patch('/student/profile/', data),
+  },
+};
