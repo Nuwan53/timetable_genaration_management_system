@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useContext, useState } from 'react';
+import { createContext, useCallback, useContext, useState } from 'react';
 import axios from 'axios';
 
 const AuthContext = createContext(null);
@@ -19,21 +19,21 @@ export function AuthProvider({ children }) {
   });
   const loading = false;
 
-  const login = async (username, password, role) => {
+  const login = useCallback(async (username, password, role) => {
     const { data } = await api.post('/auth/login/', { username, password, role });
     localStorage.setItem('tms_token', data.token);
     localStorage.setItem('tms_user', JSON.stringify(data.user));
     setUser(data.user);
     return data.user;
-  };
+  }, []);
 
-  const logout = () => {
+  const logout = useCallback(() => {
     localStorage.removeItem('tms_token');
     localStorage.removeItem('tms_user');
     setUser(null);
-  };
+  }, []);
 
-  const updateUser = (nextUser) => {
+  const updateUser = useCallback((nextUser) => {
     setUser((current) => {
       const merged = typeof nextUser === 'function' ? nextUser(current) : { ...current, ...nextUser };
       if (merged) {
@@ -41,7 +41,7 @@ export function AuthProvider({ children }) {
       }
       return merged;
     });
-  };
+  }, []);
 
   return (
     <AuthContext.Provider value={{ user, setUser, updateUser, login, logout, loading }}>

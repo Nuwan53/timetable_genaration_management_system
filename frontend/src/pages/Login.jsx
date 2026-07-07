@@ -131,14 +131,14 @@ export default function Login() {
             </button>
           </form>
 
-          <div className="login-note-box">
+          {/* <div className="login-note-box">
             <div className="login-note-title">Sample credentials</div>
             <div className="credential-chips">
               <div className="credential-chip"><span>admin</span><span>Admin@123</span></div>
               <div className="credential-chip"><span>lecturer</span><span>Lecturer@123</span></div>
               <div className="credential-chip"><span>student</span><span>Student@123</span></div>
             </div>
-          </div>
+          </div> */}
         </div>
       </div>
     </div>
