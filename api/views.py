@@ -6,7 +6,7 @@ from django.http import HttpResponse
 from django.db.models import Q
 from django.utils import timezone
 from rest_framework import viewsets, status
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, BasePermission
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
@@ -19,6 +19,7 @@ from .serializers import (
     ScheduleSlotReadSerializer, ScheduleSlotWriteSerializer,
     AuthUserSerializer,
     StudentProfileSerializer, LecturerProfileSerializer, LecturerRequestSerializer, LecturerNotificationSerializer,
+    StudentAccountSerializer,
     AnnouncementSerializer, StudentNotificationSerializer,
 )
 
@@ -33,6 +34,15 @@ import io
 DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
 TIMES = ['08:00', '09:00', '10:00', '11:00', '12:00', '13:00',
          '14:00', '15:00', '16:00', '17:00']
+
+
+class IsAdminRole(BasePermission):
+    def has_permission(self, request, view):
+        if not request.user or not request.user.is_authenticated:
+            return False
+
+        profile = getattr(request.user, 'profile', None)
+        return bool(request.user.is_staff or request.user.is_superuser or (profile and profile.role == 'ADMIN'))
 
 
 def serialize_user(user, request=None):
@@ -143,6 +153,14 @@ class CourseViewSet(viewsets.ModelViewSet):
 class LecturerViewSet(viewsets.ModelViewSet):
     queryset = Lecturer.objects.all()
     serializer_class = LecturerSerializer
+
+
+class StudentAccountViewSet(viewsets.ModelViewSet):
+    serializer_class = StudentAccountSerializer
+    permission_classes = [IsAdminRole]
+
+    def get_queryset(self):
+        return User.objects.select_related('profile', 'profile__student_group').filter(profile__role='STUDENT').order_by('username')
 
 
 class LecturerMeViewSet(viewsets.ViewSet):

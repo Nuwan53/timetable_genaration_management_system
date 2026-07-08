@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
-import { LayoutDashboard, BookOpen, Users, MapPin, Clock, CalendarDays, LayoutGrid, LogOut, Search, Bell, ChevronRight } from 'lucide-react';
+import { LayoutDashboard, BookOpen, Users, MapPin, Clock, CalendarDays, LayoutGrid, LogOut, Search, Bell, ChevronRight, GraduationCap } from 'lucide-react';
 import './index.css';
 
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -12,6 +12,7 @@ import StudentDashboard from './pages/StudentDashboard';
 import LecturerDashboard from './pages/LecturerDashboard';
 import Courses    from './pages/Courses';
 import Lecturers  from './pages/Lecturers';
+import Students   from './pages/Students';
 import Venues     from './pages/Venues';
 import Groups     from './pages/Groups';
 import TimeSlots  from './pages/TimeSlots';
@@ -22,6 +23,7 @@ const nav = [
   { to:'/timetable',  label:'Timetable',      icon:<LayoutGrid size={16}/>,      roles:['ADMIN','LECTURER','STUDENT'] },
   { to:'/courses',    label:'Courses',        icon:<BookOpen size={16}/>,        roles:['ADMIN'] },
   { to:'/lecturers',  label:'Lecturers',      icon:<Users size={16}/>,           roles:['ADMIN'] },
+  { to:'/students',   label:'Students',       icon:<GraduationCap size={16}/>,   roles:['ADMIN'] },
   { to:'/venues',     label:'Venues',         icon:<MapPin size={16}/>,          roles:['ADMIN'] },
   { to:'/groups',     label:'Student Groups', icon:<CalendarDays size={16}/>,    roles:['ADMIN'] },
   { to:'/timeslots',  label:'Time Slots',     icon:<Clock size={16}/>,           roles:['ADMIN'] },
@@ -30,7 +32,7 @@ const nav = [
 const pageTitle = {
   '/': 'Dashboard', '/student': 'Dashboard', '/lecturer': 'Dashboard', '/timetable': 'Timetable', '/courses': 'Courses',
   '/lecturers': 'Lecturers', '/venues': 'Venues',
-  '/groups': 'Student Groups', '/timeslots': 'Time Slots',
+  '/students': 'Students', '/groups': 'Student Groups', '/timeslots': 'Time Slots',
 };
 
 function AppShell() {
@@ -112,6 +114,7 @@ function AppShell() {
             <Route path="/timetable"  element={<Timetable/>}/>
             <Route path="/courses"    element={<ProtectedRoute allow={['ADMIN']}><Courses/></ProtectedRoute>}/>
             <Route path="/lecturers"  element={<ProtectedRoute allow={['ADMIN']}><Lecturers/></ProtectedRoute>}/>
+            <Route path="/students"   element={<ProtectedRoute allow={['ADMIN']}><Students/></ProtectedRoute>}/>
             <Route path="/venues"     element={<ProtectedRoute allow={['ADMIN']}><Venues/></ProtectedRoute>}/>
             <Route path="/groups"     element={<ProtectedRoute allow={['ADMIN']}><Groups/></ProtectedRoute>}/>
             <Route path="/timeslots"  element={<ProtectedRoute allow={['ADMIN']}><TimeSlots/></ProtectedRoute>}/>

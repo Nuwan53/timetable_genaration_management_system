@@ -10,6 +10,18 @@ api.interceptors.request.use((config) => {
 
 export const courses   = { list: () => api.get('/courses/'), create: d => api.post('/courses/', d), update: (id,d) => api.put(`/courses/${id}/`, d), remove: id => api.delete(`/courses/${id}/`) };
 export const lecturers = { list: () => api.get('/lecturers/'), create: d => api.post('/lecturers/', d), update: (id,d) => api.put(`/lecturers/${id}/`, d), remove: id => api.delete(`/lecturers/${id}/`) };
+export const students = {
+  list: () => api.get('/students/'),
+  create: (d) => api.post('/students/', d),
+  update: (id, d) => {
+    const payload = { ...d };
+    if (!payload.password) {
+      delete payload.password;
+    }
+    return api.patch(`/students/${id}/`, payload);
+  },
+  remove: (id) => api.delete(`/students/${id}/`),
+};
 export const venues    = { list: () => api.get('/venues/'), create: d => api.post('/venues/', d), update: (id,d) => api.put(`/venues/${id}/`, d), remove: id => api.delete(`/venues/${id}/`) };
 export const groups    = { list: () => api.get('/groups/'), create: d => api.post('/groups/', d), update: (id,d) => api.put(`/groups/${id}/`, d), remove: id => api.delete(`/groups/${id}/`) };
 export const timeslots = { list: () => api.get('/timeslots/'), create: d => api.post('/timeslots/', d), remove: id => api.delete(`/timeslots/${id}/`) };

@@ -6,11 +6,13 @@ from .views import (
     auth_login, LecturerMeViewSet, LecturerScheduleViewSet,
     LecturerRequestViewSet, LecturerNotificationViewSet,
     StudentDashboardView, StudentProfileView,
+    StudentAccountViewSet,
 )
 
 router = DefaultRouter()
 router.register(r'courses', CourseViewSet)
 router.register(r'lecturers', LecturerViewSet)
+router.register(r'students', StudentAccountViewSet, basename='student')
 router.register(r'venues', VenueViewSet)
 router.register(r'groups', StudentGroupViewSet)
 router.register(r'timeslots', TimeSlotViewSet)
