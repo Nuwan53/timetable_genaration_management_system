@@ -333,7 +333,7 @@ class StudentAccountViewSet(viewsets.ModelViewSet):
                     profile.student_group = student_group
                     profile.registration_number = registration_number
                     profile.contact_number = contact_number or None
-                    profile.must_change_password = must_change_password or created_user or bool(password or not user.check_password(temporary_password))
+                    profile.must_change_password = must_change_password or created_user or bool(password)
                     profile.save()
 
                 if send_emails and email:
