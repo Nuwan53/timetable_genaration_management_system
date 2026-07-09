@@ -43,4 +43,8 @@ def seed_demo_accounts(sender, **kwargs):
     if sender.name != 'api':
         return
 
+    from django.conf import settings
+    if not settings.DEBUG:
+        return
+
     ensure_demo_accounts()
