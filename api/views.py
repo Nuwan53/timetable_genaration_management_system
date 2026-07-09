@@ -323,13 +323,8 @@ class StudentAccountViewSet(viewsets.ModelViewSet):
                         user.set_password(temporary_password)
                     user.save()
 
-                    profile = getattr(user, 'profile', None)
-                    if profile is None:
-                        profile = user.profile = user.userprofile if hasattr(user, 'userprofile') else None
-                    if profile is None:
-                        from .models import UserProfile
-                        profile = UserProfile(user=user, role='STUDENT')
-
+                    from .models import UserProfile
+                    profile, _ = UserProfile.objects.get_or_create(user=user, defaults={'role': 'STUDENT'})
                     profile.role = 'STUDENT'
                     profile.student_group = student_group
                     profile.registration_number = registration_number
