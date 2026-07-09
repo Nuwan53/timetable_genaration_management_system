@@ -209,7 +209,8 @@ def build_student_dashboard(profile, request, semester='S2-2026'):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def auth_login(request):
-    ensure_demo_accounts()
+    if settings.DEBUG:
+        ensure_demo_accounts()
 
     username = str(request.data.get('username', '')).strip()
     password = str(request.data.get('password', ''))
