@@ -1,291 +1,412 @@
-import {
-  Bell,
-  CalendarDays,
-  Clock,
-  Download,
-  GraduationCap,
-  MapPin,
-  User,
-  BookOpen,
-  CalendarCheck,
-  LogOut,
-  Settings,
-  Printer,
-  Mail,
-  Building2,
-  AlertCircle,
-  Users,
-  ClipboardList,
-} from "lucide-react";
+import { useEffect, useMemo, useState } from 'react';
+import toast from 'react-hot-toast';
+import { Bell, CalendarDays, Clock3, Filter, MapPin, MessageSquarePlus, ShieldAlert, UserRoundPen, CheckCircle2 } from 'lucide-react';
+import { lecturerApi } from '../api';
+import { useAuth } from '../context/AuthContext';
+
+const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+
+function formatTimeRange(slot) {
+  return `${slot.timeslot.start_time.slice(0, 5)} - ${slot.timeslot.end_time.slice(0, 5)}`;
+}
 
 export default function LecturerDashboard() {
-  const todaySessions = [
-    {
-      time: "08:00 - 09:55",
-      course: "COM1213",
-      title: "Computer Systems",
-      venue: "CS AUD",
-      group: "PS6 / PS7",
-      type: "Lecture",
-    },
-    {
-      time: "13:00 - 14:55",
-      course: "COM2212",
-      title: "Database Systems",
-      venue: "CS LAB",
-      group: "Level II",
-      type: "Practical",
-    },
-  ];
+  const { user } = useAuth();
+  const [items, setItems] = useState([]);
+  const [notifications, setNotifications] = useState([]);
+  const [requests, setRequests] = useState([]);
+  const [profile, setProfile] = useState({ name: '', email: '', department: '' });
+  const [filters, setFilters] = useState({ day: '', subject: '', room: '' });
+  const [availabilityForm, setAvailabilityForm] = useState({ requested_date: '', requested_start: '', requested_end: '', reason: '' });
+  const [changeForm, setChangeForm] = useState({ schedule_slot: '', requested_room: '', requested_start: '', requested_end: '', reason: '' });
+  const [loading, setLoading] = useState(true);
 
-    const assignedCourses = ["COM1213", "COM2212", "COM3232", "CSC3262"];
-    const studentGroups = ["PS6", "PS7", "Level II - Group A", "Practical Group 01"];
+  const loadData = async () => {
+    if (!user?.lecturer_id) return;
+    setLoading(true);
+    try {
+      const [scheduleRes, notificationsRes, requestsRes, profileRes] = await Promise.all([
+        lecturerApi.schedule({ semester: 'S2-2026' }),
+        lecturerApi.notifications(),
+        lecturerApi.requests.list(),
+        lecturerApi.me(),
+      ]);
 
-    return (
-      <div className="flex min-h-screen bg-gray-50">
-        <aside className="hidden w-72 flex-col bg-gradient-to-br from-slate-900 via-blue-900 to-slate-800 text-blue-100 lg:flex">
-          <div className="flex items-center gap-3 px-6 py-6">
-            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-blue-400">
-                <GraduationCap className="text-blue-950" size={22} />
+      setItems(scheduleRes.data);
+      setNotifications(notificationsRes.data);
+      setRequests(requestsRes.data);
+      setProfile(profileRes.data);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to load lecturer dashboard');
+    } finally {
+      setLoading(false);
+    }
+  };
 
-            </div>
+  useEffect(() => {
+    loadData();
+  }, [user?.lecturer_id]);
 
-            <div>
-              <p className="text-sm font-semibold leading-tight text-white">
-                  Faculty of <br /> Science
-              </p>
+  const uniqueTimes = useMemo(() => {
+    const times = new Map();
+    items.forEach((slot) => {
+      times.set(slot.timeslot.start_time, slot.timeslot);
+    });
+    return [...times.values()].sort((a, b) => a.start_time.localeCompare(b.start_time));
+  }, [items]);
 
-              <p className="text-[10px] tracking-wide text-blue-200">
-                  LECTURER PORTAL
-              </p>
-            </div>
-          </div>
-          <nav className="mt-4 flex-1 px-3">
-          {[
-            ["Dashboard", CalendarCheck],
-            ["My Timetable", CalendarDays],
-            ["Assigned Courses", BookOpen],
-            ["Student Groups", Users],
-            ["Profile", User],
-          ].map(([item, Icon], index) => (
-            <button
-              key={item}
-              className={`mb-1 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition ${
-                index === 0
-                  ? "border border-blue-300/20 bg-blue-500/20 text-white"
-                  : "hover:bg-white/10 hover:text-white"
-              }`}
-            >
-              <Icon size={18} />
-              {item}
-            </button>
-          ))}
-        </nav>
+  const filteredItems = useMemo(() => {
+    return items.filter((slot) => {
+      const matchesDay = !filters.day || slot.timeslot.day === filters.day;
+      const matchesSubject = !filters.subject || slot.course.code.toLowerCase().includes(filters.subject.toLowerCase()) || slot.course.name.toLowerCase().includes(filters.subject.toLowerCase());
+      const matchesRoom = !filters.room || slot.venue.code.toLowerCase().includes(filters.room.toLowerCase()) || slot.venue.name.toLowerCase().includes(filters.room.toLowerCase());
+      return matchesDay && matchesSubject && matchesRoom;
+    });
+  }, [items, filters]);
 
-        <div className="border-t border-blue-300/20 px-3 py-4">
-          <button className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm hover:bg-white/10">
-              <Settings size={18} /> Settings
-          </button>
+  const todaysRemaining = useMemo(() => {
+    const todayName = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+    const now = new Date();
 
-          <button className="mt-2 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-red-300 hover:bg-red-500/10">
-              <LogOut size={18} /> Logout
-          </button>
+    return items
+      .filter((slot) => {
+        if (slot.timeslot.day !== todayName) return false;
+        const [hour, minute] = slot.timeslot.end_time.split(':').map(Number);
+        const slotEnd = new Date();
+        slotEnd.setHours(hour, minute, 0, 0);
+        return slotEnd >= now;
+      })
+      .sort((a, b) => a.timeslot.start_time.localeCompare(b.timeslot.start_time));
+  }, [items]);
+
+  const conflicts = useMemo(() => {
+    const seen = new Map();
+    const results = [];
+
+    items.forEach((slot) => {
+      const key = `${slot.timeslot.day}-${slot.timeslot.start_time}`;
+      const previous = seen.get(key);
+      if (previous) {
+        results.push({ key, first: previous, second: slot });
+      } else {
+        seen.set(key, slot);
+      }
+    });
+
+    return results;
+  }, [items]);
+
+  const stats = useMemo(() => {
+    const teachingMinutes = items.reduce((total, slot) => {
+      const [startHours, startMinutes] = slot.timeslot.start_time.split(':').map(Number);
+      const [endHours, endMinutes] = slot.timeslot.end_time.split(':').map(Number);
+      return total + ((endHours * 60 + endMinutes) - (startHours * 60 + startMinutes));
+    }, 0);
+
+    return {
+      classes: items.length,
+      hours: (teachingMinutes / 60).toFixed(1),
+      rooms: new Set(items.map((slot) => slot.venue.code)).size,
+      notifications: notifications.length,
+    };
+  }, [items, notifications]);
+
+  const submitAvailability = async (event) => {
+    event.preventDefault();
+
+    try {
+      await lecturerApi.requests.create({
+        request_type: 'AVAILABILITY',
+        ...availabilityForm,
+      });
+      toast.success('Availability request sent');
+      setAvailabilityForm({ requested_date: '', requested_start: '', requested_end: '', reason: '' });
+      loadData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Could not submit availability request');
+    }
+  };
+
+  const submitChangeRequest = async (event) => {
+    event.preventDefault();
+
+    try {
+      await lecturerApi.requests.create({
+        request_type: 'CHANGE',
+        ...changeForm,
+      });
+      toast.success('Change request sent');
+      setChangeForm({ schedule_slot: '', requested_room: '', requested_start: '', requested_end: '', reason: '' });
+      loadData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Could not submit change request');
+    }
+  };
+
+  const saveProfile = async (event) => {
+    event.preventDefault();
+
+    try {
+      const { data } = await lecturerApi.updateMe(profile);
+      setProfile(data);
+      toast.success('Profile updated');
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Could not update profile');
+    }
+  };
+
+  if (loading) {
+    return <div className="loading-center"><div className="spinner" /></div>;
+  }
+
+  return (
+    <div style={{ display: 'grid', gap: 20 }}>
+      <div className="stats-row">
+        <div className="stat-card">
+          <div className="stat-icon" style={{ background: '#dbeafe', color: '#1e40af' }}><CalendarDays size={20} /></div>
+          <div><div className="stat-val">{stats.classes}</div><div className="stat-lbl">Classes This Week</div></div>
         </div>
-        
-        </aside>
+        <div className="stat-card">
+          <div className="stat-icon" style={{ background: '#dcfce7', color: '#166534' }}><Clock3 size={20} /></div>
+          <div><div className="stat-val">{stats.hours}</div><div className="stat-lbl">Total Teaching Hours</div></div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-icon" style={{ background: '#fef3c7', color: '#92400e' }}><MapPin size={20} /></div>
+          <div><div className="stat-val">{stats.rooms}</div><div className="stat-lbl">Rooms Assigned</div></div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-icon" style={{ background: '#e0e7ff', color: '#4338ca' }}><Bell size={20} /></div>
+          <div><div className="stat-val">{stats.notifications}</div><div className="stat-lbl">Notifications</div></div>
+        </div>
+      </div>
 
-        <main className="flex-1">
-          <header className="flex h-20 items-center justify-between border-b border-slate-200 bg-white px-8 shadow-sm">
-            <div>
-              <h1 className="text-lg font-semibold text-slate-900">
-                Lecturer Dashboard
-              </h1>
-
-              <p className="text-sm text-slate-500">
-                View teaching schedule, courses, groups and timetable updates.
-              </p>
-            </div>
-
-            <div className="flex items-center gap-5">
-            <button className="text-slate-400 hover:text-slate-600">
-              <Bell size={20} />
-            </button>
-
-            <div className="flex items-center gap-3 border-l border-slate-200 pl-4">
+      <div className="card">
+        <div className="card-header">
+          <span className="card-title">Today’s Remaining Classes</span>
+          <span className="badge badge-blue">{new Date().toLocaleDateString('en-US', { weekday: 'long' })}</span>
+        </div>
+        <div style={{ display: 'grid', gap: 12 }}>
+          {todaysRemaining.length === 0 && <div style={{ color: '#64748b' }}>No remaining classes today.</div>}
+          {todaysRemaining.map((slot) => (
+            <div key={slot.id} className="stat-card" style={{ justifyContent: 'space-between' }}>
               <div>
-                <p className="text-right text-sm font-medium text-slate-800">
-                  Dr. Lecturer Name
-                </p>
-                <p className="text-right text-xs text-slate-400">
-                  Computer Science
-                </p>
+                <div style={{ fontWeight: 700 }}>{slot.course.code} · {slot.course.name}</div>
+                <div className="stat-lbl">{slot.group.display || String(slot.group)}</div>
               </div>
-              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-700 text-white">
-                <User size={18} />
+              <div style={{ textAlign: 'right' }}>
+                <div>{formatTimeRange(slot)}</div>
+                <div className="stat-lbl">{slot.venue.code}</div>
               </div>
             </div>
-          </div>
-          </header>
-
-          <div className="p-8">
-          <div className="mb-6 flex flex-col justify-between gap-4 xl:flex-row xl:items-end">
-            <div>
-              <h2 className="text-3xl font-bold text-slate-900">
-                Welcome Back, Lecturer
-              </h2>
-              <p className="text-sm text-slate-500">
-                Here is your academic timetable overview for this week.
-              </p>
-            </div>
-
-            <div className="flex gap-3">
-              <button className="flex items-center gap-2 rounded-xl border border-blue-100 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-100">
-                <Printer size={16} />
-                Print
-              </button>
-              <button className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">
-                <Download size={16} />
-                Download PDF
-              </button>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 gap-5 md:grid-cols-4">
-            <StatCard icon={<CalendarDays size={20} />} label="Today’s Sessions" value="2" />
-            <StatCard icon={<Clock size={20} />} label="Weekly Teaching Hours" value="12 hrs" />
-            <StatCard icon={<BookOpen size={20} />} label="Assigned Courses" value="4" />
-            <StatCard icon={<Users size={20} />} label="Student Groups" value="4" />
-
-          </div>
-
-          <div>
-             <section className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
-              <div className="mb-5 flex items-center justify-between">
-                <div>
-                  <h3 className="text-lg font-semibold text-slate-900">
-                      Next Class
-                  </h3>
-
-                  <p className="text-sm text-slate-500">
-
-                    Your nearest upcoming session.
-                  </p>
-                  
-                </div>
-                <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-600">
-                  Starts in 45 min
-
-                </span>
-              </div>
-
-              <div className="rounded-2xl bg-gradient-to-br from-blue-600 to-blue-800 p-6 text-white">
-                <p className="text-sm text-blue-100">COM1213</p>
-                <h4 className="mt-1 text-2xl font-bold">Computer Systems</h4>
-                <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-3">
-                  <InfoPill icon={<Clock size={16} />} label="08:00 - 09:55" />
-                  <InfoPill icon={<MapPin size={16} />} label="CS AUD" />
-                  <InfoPill icon={<Users size={16} />} label="PS6 / PS7" />
-                </div>
-              </div>
-
-            </section>
-
-            <section className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
-              <h3 className="text-lg font-semibold text-slate-900">
-                Profile Summary
-              </h3>
-
-              <div className="mt-5 space-y-4 text-sm">
-                <ProfileRow icon={<User size={16} />} label="Name" value="Dr. Lecturer Name" />
-                <ProfileRow icon={<Building2 size={16} />} label="Department" value="Computer Science" />
-                <ProfileRow icon={<GraduationCap size={16} />} label="Designation" value="Senior Lecturer" />
-                <ProfileRow icon={<Mail size={16} />} label="Email" value="lecturer@sci.ruh.ac.lk" />
-              </div>
-            </section>
-          </div>
-
-          <div>
-            <section className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
-              <h3 className="text-lg font-semibold text-slate-900">
-                Today’s Classes
-              </h3>
-              <p className="text-sm text-slate-500">
-                Scheduled teaching sessions for today.
-              </p>
-
-              <div className="mt-5 space-y-4">
-                {todaySessions.map((session) => (
-                  <div
-                    key={session.course}
-                    className="rounded-xl border border-slate-100 bg-slate-50 p-4"
-                  >
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <p className="text-sm font-semibold text-blue-700">
-                          {session.course}
-                        </p>
-                        <h4 className="mt-1 text-lg font-semibold text-slate-900">
-                          {session.title}
-                        </h4>
-                        <p className="mt-1 text-sm text-slate-500">
-                          {session.group}
-                        </p>
-                      </div>
-
-                      <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-600">
-                        {session.type}
-                      </span>
-                    </div>
-
-                    <div className="mt-4 flex flex-wrap gap-4 text-sm text-slate-500">
-                      <span className="flex items-center gap-2">
-                        <Clock size={15} /> {session.time}
-                      </span>
-                      <span className="flex items-center gap-2">
-                        <MapPin size={15} /> {session.venue}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-          </div>
-
+          ))}
         </div>
-        </main>
       </div>
-    )
-}
 
-function StatCard({ icon, label, value }) {
-  return (
-    <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
-        {icon}
+      <div className="card">
+        <div className="card-header">
+          <span className="card-title">My Timetable</span>
+          <span className="badge badge-green">Read only</span>
+        </div>
+        <div className="tt-controls">
+          <div className="form-group" style={{ margin: 0, minWidth: 150 }}>
+            <label><Filter size={12} /> Day</label>
+            <select value={filters.day} onChange={(event) => setFilters((current) => ({ ...current, day: event.target.value }))}>
+              <option value="">All days</option>
+              {DAYS.map((day) => <option key={day} value={day}>{day}</option>)}
+            </select>
+          </div>
+          <div className="form-group" style={{ margin: 0, minWidth: 220 }}>
+            <label>Subject</label>
+            <input value={filters.subject} onChange={(event) => setFilters((current) => ({ ...current, subject: event.target.value }))} placeholder="Search by subject" />
+          </div>
+          <div className="form-group" style={{ margin: 0, minWidth: 180 }}>
+            <label>Room</label>
+            <input value={filters.room} onChange={(event) => setFilters((current) => ({ ...current, room: event.target.value }))} placeholder="Search by room" />
+          </div>
+        </div>
+
+        <div className="tt-grid-wrap">
+          <table className="tt-grid">
+            <thead>
+              <tr>
+                <th>Time</th>
+                {DAYS.map((day) => <th key={day}>{day}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {uniqueTimes.length === 0 && (
+                <tr>
+                  <td colSpan={6} style={{ textAlign: 'center', color: '#94a3b8', padding: 24 }}>No timetable items found.</td>
+                </tr>
+              )}
+              {uniqueTimes.map((timeSlot) => (
+                <tr key={timeSlot.id}>
+                  <td className="time-col">{timeSlot.start_time.slice(0, 5)}<br /><span style={{ fontSize: 9, opacity: 0.7 }}>{timeSlot.end_time.slice(0, 5)}</span></td>
+                  {DAYS.map((day) => {
+                    const slot = filteredItems.find((item) => item.timeslot.day === day && item.timeslot.start_time === timeSlot.start_time);
+                    return (
+                      <td key={day}>
+                        {slot ? (
+                          <div className="slot-cell" style={{ cursor: 'default' }}>
+                            <div style={{ fontWeight: 600 }}>{slot.course.code}</div>
+                            <div style={{ opacity: 0.85 }}>{slot.venue.code}</div>
+                            <div style={{ opacity: 0.7, fontSize: 10 }}>{slot.group.display || String(slot.group)}</div>
+                          </div>
+                        ) : (
+                          <span style={{ color: '#cbd5e1', fontSize: 11 }}>—</span>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
-      <p className="mt-4 text-sm text-slate-500">{label}</p>
-      <p className="mt-1 text-2xl font-bold text-slate-900">{value}</p>
-    </div>
-  );
-}
 
-function InfoPill({ icon, label }) {
-  return (
-    <div className="flex items-center gap-2 rounded-xl bg-white/10 px-3 py-2 text-sm">
-      {icon}
-      {label}
-    </div>
-  );
-}
+      {conflicts.length > 0 && (
+        <div className="conflict-list">
+          <h4>Conflict warning</h4>
+          <ul>
+            {conflicts.map((conflict) => (
+              <li key={conflict.key}>{conflict.first.timeslot.day} {conflict.first.timeslot.start_time.slice(0, 5)} is double-booked for your account.</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
-function ProfileRow({ icon, label, value }) {
-  return (
-    <div className="flex items-center justify-between gap-4 border-b border-slate-100 pb-3 last:border-0">
-      <span className="flex items-center gap-2 text-slate-500">
-        {icon}
-        {label}
-      </span>
-      <span className="text-right font-medium text-slate-800">{value}</span>
+      <div className="card">
+        <div className="card-header">
+          <span className="card-title">Notifications</span>
+          <Bell size={16} />
+        </div>
+        <div style={{ display: 'grid', gap: 12 }}>
+          {notifications.length === 0 && <div style={{ color: '#64748b' }}>No notifications yet.</div>}
+          {notifications.map((notification) => (
+            <div key={notification.id} className="stat-card" style={{ alignItems: 'flex-start' }}>
+              <div className="stat-icon" style={{ background: notification.is_read ? '#e2e8f0' : '#dbeafe', color: '#1e40af' }}><ShieldAlert size={18} /></div>
+              <div>
+                <div style={{ fontWeight: 700 }}>{notification.title}</div>
+                <div className="stat-lbl" style={{ marginTop: 4 }}>{notification.message}</div>
+                <div style={{ marginTop: 8 }} className={notification.is_read ? 'badge badge-green' : 'badge badge-amber'}>{notification.notification_type}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-header">
+          <span className="card-title">Availability / Leave Request</span>
+          <MessageSquarePlus size={16} />
+        </div>
+        <form onSubmit={submitAvailability} className="form-row">
+          <div className="form-group">
+            <label>Date</label>
+            <input type="date" value={availabilityForm.requested_date} onChange={(event) => setAvailabilityForm((current) => ({ ...current, requested_date: event.target.value }))} />
+          </div>
+          <div className="form-group">
+            <label>Start Time</label>
+            <input type="time" value={availabilityForm.requested_start} onChange={(event) => setAvailabilityForm((current) => ({ ...current, requested_start: event.target.value }))} />
+          </div>
+          <div className="form-group">
+            <label>End Time</label>
+            <input type="time" value={availabilityForm.requested_end} onChange={(event) => setAvailabilityForm((current) => ({ ...current, requested_end: event.target.value }))} />
+          </div>
+          <div className="form-group">
+            <label>Reason</label>
+            <textarea rows={4} value={availabilityForm.reason} onChange={(event) => setAvailabilityForm((current) => ({ ...current, reason: event.target.value }))} />
+          </div>
+          <div className="modal-footer" style={{ gridColumn: '1 / -1' }}>
+            <button className="btn btn-primary" type="submit">Submit Availability Request</button>
+          </div>
+        </form>
+      </div>
+
+      <div className="card">
+        <div className="card-header">
+          <span className="card-title">Change Request</span>
+          <UserRoundPen size={16} />
+        </div>
+        <form onSubmit={submitChangeRequest} className="form-row">
+          <div className="form-group">
+            <label>Class</label>
+            <select value={changeForm.schedule_slot} onChange={(event) => setChangeForm((current) => ({ ...current, schedule_slot: event.target.value }))}>
+              <option value="">Select one of your classes</option>
+              {items.map((slot) => <option key={slot.id} value={slot.id}>{slot.course.code} · {slot.timeslot.day} {slot.timeslot.start_time.slice(0, 5)}</option>)}
+            </select>
+          </div>
+          <div className="form-group">
+            <label>Requested Room</label>
+            <input value={changeForm.requested_room} onChange={(event) => setChangeForm((current) => ({ ...current, requested_room: event.target.value }))} />
+          </div>
+          <div className="form-group">
+            <label>Requested Start</label>
+            <input type="time" value={changeForm.requested_start} onChange={(event) => setChangeForm((current) => ({ ...current, requested_start: event.target.value }))} />
+          </div>
+          <div className="form-group">
+            <label>Requested End</label>
+            <input type="time" value={changeForm.requested_end} onChange={(event) => setChangeForm((current) => ({ ...current, requested_end: event.target.value }))} />
+          </div>
+          <div className="form-group">
+            <label>Reason</label>
+            <textarea rows={4} value={changeForm.reason} onChange={(event) => setChangeForm((current) => ({ ...current, reason: event.target.value }))} />
+          </div>
+          <div className="modal-footer" style={{ gridColumn: '1 / -1' }}>
+            <button className="btn btn-primary" type="submit">Submit Change Request</button>
+          </div>
+        </form>
+      </div>
+
+      <div className="card">
+        <div className="card-header">
+          <span className="card-title">Profile</span>
+          <CheckCircle2 size={16} />
+        </div>
+        <form onSubmit={saveProfile} className="form-row">
+          <div className="form-group">
+            <label>Name</label>
+            <input value={profile.name} onChange={(event) => setProfile((current) => ({ ...current, name: event.target.value }))} />
+          </div>
+          <div className="form-group">
+            <label>Email</label>
+            <input type="email" value={profile.email} onChange={(event) => setProfile((current) => ({ ...current, email: event.target.value }))} />
+          </div>
+          <div className="form-group">
+            <label>Department</label>
+            <input value={profile.department} onChange={(event) => setProfile((current) => ({ ...current, department: event.target.value }))} />
+          </div>
+          <div className="form-group">
+            <label>Assigned Subjects</label>
+            <input readOnly value={[...new Set(items.map((slot) => slot.course.code))].join(', ')} />
+          </div>
+          <div className="modal-footer" style={{ gridColumn: '1 / -1' }}>
+            <button className="btn btn-primary" type="submit">Save Profile</button>
+          </div>
+        </form>
+      </div>
+
+      <div className="card">
+        <div className="card-header">
+          <span className="card-title">Pending Requests</span>
+        </div>
+        <div style={{ display: 'grid', gap: 12 }}>
+          {requests.length === 0 && <div style={{ color: '#64748b' }}>No requests submitted yet.</div>}
+          {requests.map((request) => (
+            <div key={request.id} className="stat-card" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div>
+                <div style={{ fontWeight: 700 }}>{request.request_type}</div>
+                <div className="stat-lbl">{request.reason || 'No reason supplied'}</div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <span className={request.status === 'APPROVED' ? 'badge badge-green' : request.status === 'REJECTED' ? 'badge badge-amber' : 'badge badge-blue'}>{request.status}</span>
+                <div className="stat-lbl" style={{ marginTop: 8 }}>{request.created_at?.slice(0, 10)}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
