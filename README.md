@@ -21,6 +21,15 @@ pip install -r requirements.txt
 # Edit core/settings.py — update your MySQL password:
 # 'USER': 'root', 'PASSWORD': 'your_actual_password'
 
+# Configure email delivery for student account passwords by setting these env vars:
+# EMAIL_HOST, EMAIL_PORT, EMAIL_HOST_USER, EMAIL_HOST_PASSWORD, EMAIL_USE_TLS, DEFAULT_FROM_EMAIL
+# Example for Gmail SMTP:
+# EMAIL_HOST=smtp.gmail.com
+# EMAIL_PORT=587
+# EMAIL_USE_TLS=true
+# EMAIL_HOST_USER=your_email@gmail.com
+# EMAIL_HOST_PASSWORD=your_app_password
+
 # Run migrations
 python manage.py makemigrations
 python manage.py migrate

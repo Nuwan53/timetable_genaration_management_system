@@ -200,7 +200,7 @@ class StudentProfileSerializer(serializers.Serializer):
 
 class StudentAccountSerializer(serializers.Serializer):
     id = serializers.IntegerField(read_only=True)
-    username = serializers.CharField()
+    username = serializers.CharField(required=False, allow_blank=True)
     password = serializers.CharField(write_only=True, required=False, allow_blank=False, trim_whitespace=False)
     name = serializers.CharField(required=False, allow_blank=True)
     email = serializers.EmailField(required=False, allow_blank=True, allow_null=True)
@@ -270,6 +270,9 @@ class StudentAccountSerializer(serializers.Serializer):
         if self.instance is None and not attrs.get('password'):
             raise serializers.ValidationError({'password': 'This field is required.'})
 
+        if self.instance is None and not attrs.get('registration_number'):
+            raise serializers.ValidationError({'registration_number': 'This field is required.'})
+
         username = attrs.get('username')
         if username:
             existing = User.objects.filter(username=username)
@@ -293,12 +296,13 @@ class StudentAccountSerializer(serializers.Serializer):
         student_group_id = validated_data.pop('student_group_id', None)
         name = validated_data.pop('name', '')
         must_change_password = validated_data.pop('must_change_password', False)
+        username = validated_data.get('username') or validated_data.get('registration_number')
 
         student_group = StudentGroup.objects.filter(pk=student_group_id).first() if student_group_id is not None else None
 
         with transaction.atomic():
             user = User(
-                username=validated_data.get('username'),
+                username=username,
                 email=validated_data.get('email') or '',
             )
             self._split_name(user, name)
@@ -321,8 +325,8 @@ class StudentAccountSerializer(serializers.Serializer):
         name = validated_data.pop('name', None)
 
         with transaction.atomic():
-            if 'username' in self.initial_data:
-                instance.username = validated_data.get('username', instance.username)
+            if 'username' in self.initial_data or 'registration_number' in self.initial_data:
+                instance.username = validated_data.get('username') or validated_data.get('registration_number') or instance.username
 
             if 'email' in self.initial_data:
                 instance.email = validated_data.get('email') or ''

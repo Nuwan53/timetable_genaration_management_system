@@ -43,6 +43,7 @@ export default function StudentDashboard() {
   const [dashboard, setDashboard] = useState(null);
   const [filters, setFilters] = useState({ day: '', subject: '' });
   const [profileForm, setProfileForm] = useState({ name: '', email: '', contact_number: '', registration_number: '', avatar_url: '', enrolled_subjects: [], student_group: null });
+  const [passwordForm, setPasswordForm] = useState({ current_password: '', new_password: '', confirm_password: '' });
   const [avatarFile, setAvatarFile] = useState(null);
   const [fileMessage, setFileMessage] = useState('');
   const [loading, setLoading] = useState(true);
@@ -157,12 +158,18 @@ export default function StudentDashboard() {
       payload.append('name', profileForm.name || '');
       payload.append('email', profileForm.email || '');
       payload.append('contact_number', profileForm.contact_number || '');
+      if (passwordForm.current_password || passwordForm.new_password || passwordForm.confirm_password) {
+        payload.append('current_password', passwordForm.current_password || '');
+        payload.append('new_password', passwordForm.new_password || '');
+        payload.append('confirm_password', passwordForm.confirm_password || '');
+      }
       if (avatarFile) {
         payload.append('avatar', avatarFile);
       }
 
       const { data } = await studentApi.profile.updateMe(payload);
       setProfileForm(data);
+      setPasswordForm({ current_password: '', new_password: '', confirm_password: '' });
       setAvatarFile(null);
       updateUser((current) => ({ ...current, ...data }));
       toast.success('Profile updated');
@@ -332,6 +339,20 @@ export default function StudentDashboard() {
                   <label><CalendarDays size={12} /> Student Group</label>
                   <input value={profileForm.student_group?.display || ''} readOnly />
                 </div>
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Current Password</label>
+                  <input type="password" value={passwordForm.current_password} onChange={(event) => setPasswordForm((current) => ({ ...current, current_password: event.target.value }))} placeholder="Enter current password" />
+                </div>
+                <div className="form-group">
+                  <label>New Password</label>
+                  <input type="password" value={passwordForm.new_password} onChange={(event) => setPasswordForm((current) => ({ ...current, new_password: event.target.value }))} placeholder="Enter new password" />
+                </div>
+              </div>
+              <div className="form-group">
+                <label>Confirm New Password</label>
+                <input type="password" value={passwordForm.confirm_password} onChange={(event) => setPasswordForm((current) => ({ ...current, confirm_password: event.target.value }))} placeholder="Confirm new password" />
               </div>
               <div className="modal-footer" style={{ paddingTop: 4 }}>
                 <button className="btn btn-primary" type="submit" disabled={saving}>

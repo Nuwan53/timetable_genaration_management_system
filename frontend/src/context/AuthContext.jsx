@@ -19,8 +19,8 @@ export function AuthProvider({ children }) {
   });
   const loading = false;
 
-  const login = useCallback(async (username, password, role) => {
-    const { data } = await api.post('/auth/login/', { username, password, role });
+  const login = useCallback(async (username, password) => {
+    const { data } = await api.post('/auth/login/', { username, password });
     localStorage.setItem('tms_token', data.token);
     localStorage.setItem('tms_user', JSON.stringify(data.user));
     setUser(data.user);

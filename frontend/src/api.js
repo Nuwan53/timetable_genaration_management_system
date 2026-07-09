@@ -13,6 +13,14 @@ export const lecturers = { list: () => api.get('/lecturers/'), create: d => api.
 export const students = {
   list: () => api.get('/students/'),
   create: (d) => api.post('/students/', d),
+  import: (file, sendEmails = true) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('send_emails', sendEmails ? 'true' : 'false');
+    return api.post('/students/import/', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
   update: (id, d) => {
     const payload = { ...d };
     if (!payload.password) {

@@ -4,7 +4,7 @@ import Modal from '../components/Modal';
 import ConfirmDelete from '../components/ConfirmDelete';
 import toast from 'react-hot-toast';
 
-export default function CrudPage({ title, api, fields, rowRenderer, formRenderer }) {
+export default function CrudPage({ title, api, fields, rowRenderer, formRenderer, extraActions }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -41,7 +41,10 @@ export default function CrudPage({ title, api, fields, rowRenderer, formRenderer
       <div className="card">
         <div className="card-header">
           <span className="card-title">{title}</span>
-          <button className="btn btn-primary btn-sm" onClick={openCreate}><Plus size={14}/> Add New</button>
+          <div className="actions" style={{ gap: 10 }}>
+            {extraActions}
+            <button className="btn btn-primary btn-sm" onClick={openCreate}><Plus size={14}/> Add New</button>
+          </div>
         </div>
         {loading ? <div className="loading-center"><div className="spinner"/></div> : (
           <div className="tbl-wrap">
