@@ -354,7 +354,6 @@ class StudentAccountViewSet(viewsets.ModelViewSet):
                     'username': username,
                     'status': 'created' if created_user else 'updated',
                     'email_sent': email_sent,
-                    'temporary_password': temporary_password,
                 })
             except IntegrityError as exc:
                 errors.append({'row': row_number, 'detail': str(exc)})
