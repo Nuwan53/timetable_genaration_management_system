@@ -6,6 +6,7 @@ import {
   CalendarDays,
   Clock3,
   Filter,
+  LayoutGrid,
   Mail,
   Megaphone,
   Phone,
@@ -14,12 +15,21 @@ import {
   UserRound,
   XCircle,
   CheckCircle2,
+  Bell,
 } from 'lucide-react';
 import { studentApi } from '../api';
 import { useAuth } from '../context/AuthContext';
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
+
+const TABS = [
+  { key: 'overview', label: 'Overview', icon: <LayoutGrid size={15} /> },
+  { key: 'timetable', label: 'My Timetable', icon: <CalendarDays size={15} /> },
+  { key: 'profile', label: 'Profile', icon: <UserRound size={15} /> },
+  { key: 'notifications', label: 'Notifications', icon: <Bell size={15} /> },
+  { key: 'announcements', label: 'Announcements', icon: <Megaphone size={15} /> },
+];
 
 function formatTimeRange(slot) {
   return `${slot.timeslot.start_time.slice(0, 5)} - ${slot.timeslot.end_time.slice(0, 5)}`;
@@ -40,6 +50,7 @@ function getNotificationTone(type) {
 
 export default function StudentDashboard() {
   const { user, updateUser } = useAuth();
+  const [activeTab, setActiveTab] = useState('overview');
   const [dashboard, setDashboard] = useState(null);
   const [filters, setFilters] = useState({ day: '', subject: '' });
   const [profileForm, setProfileForm] = useState({ name: '', email: '', contact_number: '', registration_number: '', avatar_url: '', enrolled_subjects: [], student_group: null });
@@ -179,8 +190,11 @@ export default function StudentDashboard() {
     return <div className="loading-center"><div className="spinner" /></div>;
   }
 
+  const unreadNotifications = notifications.filter((n) => !n.is_read).length;
+
   return (
     <div style={{ display: 'grid', gap: 20 }}>
+      {/* Stats row stays visible at all times — quick glance regardless of active tab */}
       <div className="stats-row">
         <div className="stat-card">
           <div className="stat-icon" style={{ background: '#dbeafe', color: '#1e40af' }}><CalendarDays size={20} /></div>
@@ -196,92 +210,120 @@ export default function StudentDashboard() {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.5fr) minmax(320px, 0.9fr)', gap: 20 }}>
-        <div style={{ display: 'grid', gap: 20 }}>
-          <div className="card">
-            <div className="card-header">
-              <span className="card-title">Today&apos;s Remaining Classes</span>
-              <span className="badge badge-blue">{todayLabel}</span>
-            </div>
-            <div style={{ display: 'grid', gap: 12 }}>
-              {todaysRemaining.length === 0 && <div style={{ color: '#64748b' }}>No remaining classes today.</div>}
-              {todaysRemaining.map((slot) => (
-                <div key={slot.id} className="stat-card" style={{ justifyContent: 'space-between' }}>
-                  <div>
-                    <div style={{ fontWeight: 700 }}>{slot.course.code} · {slot.course.name}</div>
-                    <div className="stat-lbl">{slot.venue.code} · {slot.lecturer.name}</div>
-                  </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div>{formatTimeRange(slot)}</div>
-                    <div className="stat-lbl">{slot.timeslot.day}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
+      {/* Tab navigation */}
+      <div className="dash-tabs" role="tablist" aria-label="Dashboard sections">
+        {TABS.map((tab) => (
+          <button
+            key={tab.key}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === tab.key}
+            className={`dash-tab${activeTab === tab.key ? ' active' : ''}`}
+            onClick={() => setActiveTab(tab.key)}
+          >
+            {tab.icon}
+            <span>{tab.label}</span>
+            {tab.key === 'notifications' && unreadNotifications > 0 && (
+              <span className="dash-tab-count">{unreadNotifications}</span>
+            )}
+            {tab.key === 'announcements' && announcements.length > 0 && (
+              <span className="dash-tab-count">{announcements.length}</span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {/* ---------------- Overview tab ---------------- */}
+      {activeTab === 'overview' && (
+        <div className="card">
+          <div className="card-header">
+            <span className="card-title">Today&apos;s Remaining Classes</span>
+            <span className="badge badge-blue">{todayLabel}</span>
           </div>
-
-          <div className="card">
-            <div className="card-header">
-              <span className="card-title">My Timetable</span>
-              <span className="badge badge-green">Read only</span>
-            </div>
-
-            <div className="tt-controls">
-              <div className="form-group" style={{ margin: 0, minWidth: 150 }}>
-                <label><Filter size={12} /> Day</label>
-                <select value={filters.day} onChange={(event) => setFilters((current) => ({ ...current, day: event.target.value }))}>
-                  <option value="">All days</option>
-                  {DAYS.map((day) => <option key={day} value={day}>{day}</option>)}
-                </select>
+          <div style={{ display: 'grid', gap: 12 }}>
+            {todaysRemaining.length === 0 && <div style={{ color: '#64748b' }}>No remaining classes today.</div>}
+            {todaysRemaining.map((slot) => (
+              <div key={slot.id} className="stat-card" style={{ justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ fontWeight: 700 }}>{slot.course.code} · {slot.course.name}</div>
+                  <div className="stat-lbl">{slot.venue.code} · {slot.lecturer.name}</div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div>{formatTimeRange(slot)}</div>
+                  <div className="stat-lbl">{slot.timeslot.day}</div>
+                </div>
               </div>
-              <div className="form-group" style={{ margin: 0, minWidth: 240 }}>
-                <label><Search size={12} /> Subject</label>
-                <input value={filters.subject} onChange={(event) => setFilters((current) => ({ ...current, subject: event.target.value }))} placeholder="Search by course code or name" />
-              </div>
-            </div>
-
-            <div className="tt-grid-wrap">
-              <table className="tt-grid">
-                <thead>
-                  <tr>
-                    <th>Time</th>
-                    {DAYS.map((day) => <th key={day}>{day}</th>)}
-                  </tr>
-                </thead>
-                <tbody>
-                  {uniqueTimes.length === 0 && (
-                    <tr>
-                      <td colSpan={6} style={{ textAlign: 'center', color: '#94a3b8', padding: 24 }}>No timetable items found.</td>
-                    </tr>
-                  )}
-                  {uniqueTimes.map((timeSlot) => (
-                    <tr key={timeSlot.id}>
-                      <td className="time-col">{timeSlot.start_time.slice(0, 5)}<br /><span style={{ fontSize: 9, opacity: 0.7 }}>{timeSlot.end_time.slice(0, 5)}</span></td>
-                      {DAYS.map((day) => {
-                        const slot = visibleSlots.find((item) => item.timeslot.day === day && item.timeslot.start_time === timeSlot.start_time);
-                        return (
-                          <td key={day}>
-                            {slot ? (
-                              <div className="slot-cell" style={{ cursor: 'default' }}>
-                                <div style={{ fontWeight: 600 }}>{slot.course.code}</div>
-                                <div style={{ opacity: 0.85 }}>{slot.course.name}</div>
-                                <div style={{ opacity: 0.7, fontSize: 10 }}>{slot.venue.code}</div>
-                              </div>
-                            ) : (
-                              <span style={{ color: '#cbd5e1', fontSize: 11 }}>—</span>
-                            )}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            ))}
           </div>
         </div>
+      )}
 
-        <div style={{ display: 'grid', gap: 20 }}>
+      {/* ---------------- Timetable tab ---------------- */}
+      {activeTab === 'timetable' && (
+        <div className="card">
+          <div className="card-header">
+            <span className="card-title">My Timetable</span>
+            <span className="badge badge-green">Read only</span>
+          </div>
+
+          <div className="tt-controls">
+            <div className="form-group" style={{ margin: 0, minWidth: 150 }}>
+              <label><Filter size={12} /> Day</label>
+              <select value={filters.day} onChange={(event) => setFilters((current) => ({ ...current, day: event.target.value }))}>
+                <option value="">All days</option>
+                {DAYS.map((day) => <option key={day} value={day}>{day}</option>)}
+              </select>
+            </div>
+            <div className="form-group" style={{ margin: 0, minWidth: 240 }}>
+              <label><Search size={12} /> Subject</label>
+              <input value={filters.subject} onChange={(event) => setFilters((current) => ({ ...current, subject: event.target.value }))} placeholder="Search by course code or name" />
+            </div>
+          </div>
+
+          <div className="tt-grid-wrap">
+            <table className="tt-grid">
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  {DAYS.map((day) => <th key={day}>{day}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {uniqueTimes.length === 0 && (
+                  <tr>
+                    <td colSpan={6} style={{ textAlign: 'center', color: '#94a3b8', padding: 24 }}>No timetable items found.</td>
+                  </tr>
+                )}
+                {uniqueTimes.map((timeSlot) => (
+                  <tr key={timeSlot.id}>
+                    <td className="time-col">{timeSlot.start_time.slice(0, 5)}<br /><span style={{ fontSize: 9, opacity: 0.7 }}>{timeSlot.end_time.slice(0, 5)}</span></td>
+                    {DAYS.map((day) => {
+                      const slot = visibleSlots.find((item) => item.timeslot.day === day && item.timeslot.start_time === timeSlot.start_time);
+                      return (
+                        <td key={day}>
+                          {slot ? (
+                            <div className="slot-cell" style={{ cursor: 'default' }}>
+                              <div style={{ fontWeight: 600 }}>{slot.course.code}</div>
+                              <div style={{ opacity: 0.85 }}>{slot.course.name}</div>
+                              <div style={{ opacity: 0.7, fontSize: 10 }}>{slot.venue.code}</div>
+                            </div>
+                          ) : (
+                            <span style={{ color: '#cbd5e1', fontSize: 11 }}>—</span>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ---------------- Profile tab ---------------- */}
+      {activeTab === 'profile' && (
+        <>
           <div className="card">
             <div className="card-header">
               <span className="card-title">Profile</span>
@@ -359,53 +401,59 @@ export default function StudentDashboard() {
               ))}
             </div>
           </div>
+        </>
+      )}
 
-          <div className="card">
-            <div className="card-header">
-              <span className="card-title">Notifications</span>
-              <span className="badge badge-amber">{notifications.length}</span>
-            </div>
-            <div style={{ display: 'grid', gap: 12 }}>
-              {notifications.length === 0 && <div style={{ color: '#64748b' }}>No class change notifications yet.</div>}
-              {notifications.map((notification) => (
-                <div key={notification.id} className="stat-card" style={{ alignItems: 'flex-start', padding: 14 }}>
-                  <div className="stat-icon" style={{ background: notification.is_read ? '#e2e8f0' : '#dbeafe', color: '#1e40af' }}>
-                    {notification.is_read ? <CheckCircle2 size={18} /> : <XCircle size={18} />}
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 700 }}>{notification.title}</div>
-                    <div className="stat-lbl" style={{ marginTop: 4 }}>{notification.message}</div>
-                    <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                      <span className="badge" style={getNotificationTone(notification.notification_type)}>{notification.notification_type}</span>
-                      <span className="badge badge-blue">{new Date(notification.created_at).toLocaleDateString()}</span>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
+      {/* ---------------- Notifications tab ---------------- */}
+      {activeTab === 'notifications' && (
+        <div className="card">
+          <div className="card-header">
+            <span className="card-title">Notifications</span>
+            <span className="badge badge-amber">{notifications.length}</span>
           </div>
-
-          <div className="card">
-            <div className="card-header">
-              <span className="card-title">Announcements</span>
-              <span className="badge badge-blue">Faculty feed</span>
-            </div>
-            <div style={{ display: 'grid', gap: 12 }}>
-              {announcements.length === 0 && <div style={{ color: '#64748b' }}>No announcements published yet.</div>}
-              {announcements.map((announcement) => (
-                <div key={announcement.id} className="stat-card" style={{ alignItems: 'flex-start', padding: 14 }}>
-                  <div className="stat-icon" style={{ background: '#fef3c7', color: '#92400e' }}><Megaphone size={18} /></div>
-                  <div>
-                    <div style={{ fontWeight: 700 }}>{announcement.title}</div>
-                    <div className="stat-lbl" style={{ marginTop: 4 }}>{announcement.message}</div>
-                    <div style={{ marginTop: 8 }} className="badge badge-green">{announcement.audience.replace('_', ' ').toLowerCase()}</div>
+          <div style={{ display: 'grid', gap: 12 }}>
+            {notifications.length === 0 && <div style={{ color: '#64748b' }}>No class change notifications yet.</div>}
+            {notifications.map((notification) => (
+              <div key={notification.id} className="stat-card" style={{ alignItems: 'flex-start', padding: 14 }}>
+                <div className="stat-icon" style={{ background: notification.is_read ? '#e2e8f0' : '#dbeafe', color: '#1e40af' }}>
+                  {notification.is_read ? <CheckCircle2 size={18} /> : <XCircle size={18} />}
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 700 }}>{notification.title}</div>
+                  <div className="stat-lbl" style={{ marginTop: 4 }}>{notification.message}</div>
+                  <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <span className="badge" style={getNotificationTone(notification.notification_type)}>{notification.notification_type}</span>
+                    <span className="badge badge-blue">{new Date(notification.created_at).toLocaleDateString()}</span>
                   </div>
                 </div>
-              ))}
-            </div>
+              </div>
+            ))}
           </div>
         </div>
-      </div>
+      )}
+
+      {/* ---------------- Announcements tab ---------------- */}
+      {activeTab === 'announcements' && (
+        <div className="card">
+          <div className="card-header">
+            <span className="card-title">Announcements</span>
+            <span className="badge badge-blue">Faculty feed</span>
+          </div>
+          <div style={{ display: 'grid', gap: 12 }}>
+            {announcements.length === 0 && <div style={{ color: '#64748b' }}>No announcements published yet.</div>}
+            {announcements.map((announcement) => (
+              <div key={announcement.id} className="stat-card" style={{ alignItems: 'flex-start', padding: 14 }}>
+                <div className="stat-icon" style={{ background: '#fef3c7', color: '#92400e' }}><Megaphone size={18} /></div>
+                <div>
+                  <div style={{ fontWeight: 700 }}>{announcement.title}</div>
+                  <div className="stat-lbl" style={{ marginTop: 4 }}>{announcement.message}</div>
+                  <div style={{ marginTop: 8 }} className="badge badge-green">{announcement.audience.replace('_', ' ').toLowerCase()}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
