@@ -18,48 +18,11 @@ import {
 } from 'lucide-react';
 import { studentApi } from '../api';
 import { useAuth } from '../context/AuthContext';
+import { useStudentTab } from '../context/StudentTabContext';
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
 
-const TAB_ITEMS = [
-  {
-    key: 'dashboard',
-    label: 'Dashboard',
-    note: 'Summary cards and remaining classes',
-    icon: CalendarDays,
-  },
-  {
-    key: 'timetable',
-    label: 'Timetable',
-    note: 'My Timetable and filters',
-    icon: Clock3,
-  },
-  {
-    key: 'profile',
-    label: 'Profile',
-    note: 'Editable student profile',
-    icon: UserRound,
-  },
-  {
-    key: 'subjects',
-    label: 'Enrolled Subjects',
-    note: 'Registered course list',
-    icon: BookOpen,
-  },
-  {
-    key: 'notifications',
-    label: 'Notifications',
-    note: 'Class change updates',
-    icon: Bell,
-  },
-  {
-    key: 'announcements',
-    label: 'Announcements',
-    note: 'Faculty announcements',
-    icon: Megaphone,
-  },
-];
 
 function formatTimeRange(slot) {
   return `${slot.timeslot.start_time.slice(0, 5)} - ${slot.timeslot.end_time.slice(0, 5)}`;
@@ -80,8 +43,8 @@ function getNotificationTone(type) {
 
 export default function StudentDashboard() {
   const { user, updateUser } = useAuth();
+  const { activeTab } = useStudentTab();
   const [dashboard, setDashboard] = useState(null);
-  const [activeTab, setActiveTab] = useState('dashboard');
   const [filters, setFilters] = useState({ day: '', subject: '' });
   const [profileForm, setProfileForm] = useState({ name: '', email: '', contact_number: '', registration_number: '', avatar_url: '', enrolled_subjects: [], student_group: null });
   const [passwordForm, setPasswordForm] = useState({ current_password: '', new_password: '', confirm_password: '' });
@@ -223,7 +186,6 @@ export default function StudentDashboard() {
     }
   };
 
-  const activeTabLabel = TAB_ITEMS.find((tab) => tab.key === activeTab)?.label || 'Dashboard';
 
   const renderDashboardTab = () => (
     <div style={{ display: 'grid', gap: 20 }}>
@@ -496,45 +458,8 @@ export default function StudentDashboard() {
   }
 
   return (
-    <div className="student-dashboard-shell">
-      <aside className="student-dashboard-sidebar card">
-        <div className="card-header" style={{ marginBottom: 14 }}>
-          <div>
-            <div className="card-title">Student Menu</div>
-            <div className="stat-lbl" style={{ marginTop: 4 }}>Pick a section to focus on</div>
-          </div>
-          <span className="badge badge-blue">{activeTabLabel}</span>
-        </div>
-
-        <div className="student-tab-list">
-          {TAB_ITEMS.map((tab) => {
-            const Icon = tab.icon;
-            const isActive = activeTab === tab.key;
-
-            return (
-              <button
-                key={tab.key}
-                type="button"
-                className={`student-tab-item${isActive ? ' active' : ''}`}
-                onClick={() => setActiveTab(tab.key)}
-                aria-pressed={isActive}
-              >
-                <span className="student-tab-icon">
-                  <Icon size={16} />
-                </span>
-                <span className="student-tab-copy">
-                  <span className="student-tab-label">{tab.label}</span>
-                  <span className="student-tab-note">{tab.note}</span>
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </aside>
-
-      <section className="student-dashboard-content">
-        {renderActiveTab()}
-      </section>
+    <div>
+      {renderActiveTab()}
     </div>
   );
 }
