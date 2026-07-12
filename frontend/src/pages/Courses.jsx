@@ -5,7 +5,7 @@ const fields = [
   {key:'code', label:'Code'},
   {key:'name', label:'Subject Name'},
   {key:'credits', label:'Credits'},
-];
+]
 
 export default function Courses() {
   return (
