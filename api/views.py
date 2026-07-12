@@ -4,9 +4,10 @@ from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from django.http import HttpResponse
 from django.db.models import Q
+from django.db import transaction
 from django.utils import timezone
 from rest_framework import viewsets, status
-from rest_framework.permissions import AllowAny, BasePermission
+from rest_framework.permissions import AllowAny, BasePermission, IsAuthenticated
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
@@ -386,3 +387,215 @@ class StudentProfileView(APIView):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(StudentProfileSerializer(profile, context={'request': request}).data)
+
+
+def generate_lecturer_id():
+    import datetime
+    year = datetime.datetime.now().year
+    prefix = f"LEC-{year}-"
+    # Find all lecturers whose lecturer_id starts with prefix
+    lecturers_list = Lecturer.objects.filter(lecturer_id__startswith=prefix)
+    max_num = 0
+    for lec in lecturers_list:
+        if lec.lecturer_id:
+            try:
+                parts = lec.lecturer_id.split('-')
+                if len(parts) == 3:
+                    num = int(parts[2])
+                    if num > max_num:
+                        max_num = num
+            except (ValueError, IndexError):
+                pass
+    return f"{prefix}{max_num + 1:03d}"
+
+
+def generate_random_password():
+    import secrets
+    chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*"
+    return "".join(secrets.choice(chars) for _ in range(10))
+
+
+class AdminLecturerCreateView(APIView):
+    permission_classes = [IsAdminRole]
+
+    @transaction.atomic
+    def post(self, request):
+        from django.db import transaction
+        from .models import UserProfile
+        name = request.data.get('name', '').strip()
+        email = request.data.get('email', '').strip()
+        department = request.data.get('department', '').strip()
+        lecturer_id = request.data.get('lecturer_id', '').strip()
+        password = request.data.get('password', '').strip()
+
+        if not name or not email:
+            return Response({'detail': 'Name and Email are required fields.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Check unique email
+        if Lecturer.objects.filter(email=email).exists():
+            return Response({'detail': 'Lecturer with this email already exists.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Handle lecturer ID
+        if not lecturer_id:
+            lecturer_id = generate_lecturer_id()
+        elif Lecturer.objects.filter(lecturer_id=lecturer_id).exists():
+            return Response({'detail': 'Lecturer ID must be unique.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Handle password
+        raw_password = password
+        if not raw_password:
+            raw_password = generate_random_password()
+
+        # Create Lecturer
+        lecturer = Lecturer.objects.create(
+            lecturer_id=lecturer_id,
+            name=name,
+            email=email,
+            department=department,
+            must_change_password=True
+        )
+
+        # Create User
+        parts = [part for part in name.split() if part]
+        first_name = parts[0] if parts else ''
+        last_name = ' '.join(parts[1:]) if len(parts) > 1 else ''
+
+        if User.objects.filter(username=lecturer_id).exists():
+            transaction.set_rollback(True)
+            return Response({'detail': f'A user with username {lecturer_id} already exists.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        user = User.objects.create(
+            username=lecturer_id,
+            email=email,
+            first_name=first_name,
+            last_name=last_name
+        )
+        user.set_password(raw_password)
+        user.save()
+
+        # Create UserProfile
+        UserProfile.objects.create(
+            user=user,
+            role='LECTURER',
+            lecturer=lecturer,
+            must_change_password=True
+        )
+
+        return Response({
+            'id': lecturer.id,
+            'lecturer_id': lecturer_id,
+            'name': name,
+            'email': email,
+            'department': department,
+            'username': lecturer_id,
+            'password': raw_password,
+            'must_change_password': True
+        }, status=status.HTTP_201_CREATED)
+
+
+class AdminStudentCreateView(APIView):
+    permission_classes = [IsAdminRole]
+
+    @transaction.atomic
+    def post(self, request):
+        from django.db import transaction
+        from .models import UserProfile
+        registration_number = request.data.get('registration_number', '').strip()
+        name = request.data.get('name', '').strip()
+        email = request.data.get('email', '').strip()
+        student_group_id = request.data.get('student_group_id')
+        contact_number = request.data.get('contact_number', '').strip()
+        password = request.data.get('password', '').strip()
+
+        if not registration_number or not name:
+            return Response({'detail': 'Registration Number and Name are required fields.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Check unique username/reg_number
+        if User.objects.filter(username=registration_number).exists():
+            return Response({'detail': 'A student account with this registration number/username already exists.'}, status=status.HTTP_400_BAD_REQUEST)
+        if UserProfile.objects.filter(registration_number=registration_number).exists():
+            return Response({'detail': 'Registration number is already in use.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Get group
+        student_group = None
+        if student_group_id:
+            try:
+                student_group = StudentGroup.objects.get(pk=student_group_id)
+            except StudentGroup.DoesNotExist:
+                return Response({'detail': 'Invalid Student Group selected.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Handle password
+        raw_password = password
+        if not raw_password:
+            raw_password = generate_random_password()
+
+        # Create User
+        parts = [part for part in name.split() if part]
+        first_name = parts[0] if parts else ''
+        last_name = ' '.join(parts[1:]) if len(parts) > 1 else ''
+
+        user = User.objects.create(
+            username=registration_number,
+            email=email,
+            first_name=first_name,
+            last_name=last_name
+        )
+        user.set_password(raw_password)
+        user.save()
+
+        # Create UserProfile
+        UserProfile.objects.create(
+            user=user,
+            role='STUDENT',
+            student_group=student_group,
+            registration_number=registration_number,
+            contact_number=contact_number,
+            must_change_password=True
+        )
+
+        return Response({
+            'id': user.id,
+            'username': registration_number,
+            'registration_number': registration_number,
+            'name': name,
+            'email': email,
+            'student_group_id': student_group_id,
+            'contact_number': contact_number,
+            'password': raw_password,
+            'must_change_password': True
+        }, status=status.HTTP_201_CREATED)
+
+
+class ChangePasswordView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        from django.db import transaction
+        from rest_framework.permissions import IsAuthenticated
+        from .models import UserProfile
+        current_password = request.data.get('current_password', '')
+        new_password = request.data.get('new_password', '')
+
+        user = request.user
+        if not user.check_password(current_password):
+            return Response({'detail': 'Incorrect current password.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if len(new_password) < 8:
+            return Response({'detail': 'New password must be at least 8 characters long.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        with transaction.atomic():
+            user.set_password(new_password)
+            user.save()
+
+            # Set must_change_password to False on UserProfile
+            profile = getattr(user, 'profile', None)
+            if profile:
+                profile.must_change_password = False
+                profile.save(update_fields=['must_change_password'])
+                
+                # Also set must_change_password to False on Lecturer (if applicable)
+                if profile.lecturer:
+                    profile.lecturer.must_change_password = False
+                    profile.lecturer.save(update_fields=['must_change_password'])
+
+        return Response({'detail': 'Password changed successfully.'}, status=status.HTTP_200_OK)

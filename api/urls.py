@@ -7,6 +7,7 @@ from .views import (
     LecturerRequestViewSet, LecturerNotificationViewSet,
     StudentDashboardView, StudentProfileView,
     StudentAccountViewSet,
+    AdminLecturerCreateView, AdminStudentCreateView, ChangePasswordView,
 )
 
 router = DefaultRouter()
@@ -20,6 +21,9 @@ router.register(r'slots', ScheduleSlotViewSet)
 
 urlpatterns = [
     path('auth/login/', auth_login),
+    path('auth/change-password/', ChangePasswordView.as_view()),
+    path('admin/lecturers/', AdminLecturerCreateView.as_view()),
+    path('admin/students/', AdminStudentCreateView.as_view()),
     path('student/dashboard/', StudentDashboardView.as_view()),
     path('student/profile/', StudentProfileView.as_view()),
     path('lecturer/me/', LecturerMeViewSet.as_view({'get': 'list', 'put': 'update', 'patch': 'update'})),

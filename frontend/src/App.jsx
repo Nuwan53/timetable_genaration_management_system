@@ -7,6 +7,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
 
 import Login      from './pages/Login';
+import ChangePassword from './pages/ChangePassword';
 import Dashboard  from './pages/Dashboard';
 import StudentDashboard from './pages/StudentDashboard';
 import LecturerDashboard from './pages/LecturerDashboard';
@@ -133,6 +134,7 @@ export default function App() {
         <Toaster position="top-right" toastOptions={{ style: { fontSize: 13 } }}/>
         <Routes>
           <Route path="/login" element={<Login/>} />
+          <Route path="/change-password" element={<ProtectedRoute><ChangePassword/></ProtectedRoute>} />
           <Route
             path="/*"
             element={

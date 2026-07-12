@@ -11,6 +11,7 @@ export default function CrudPage({ title, api, fields, rowRenderer, formRenderer
   const [editing, setEditing] = useState(null);
   const [deleting, setDeleting] = useState(null);
   const [form, setForm] = useState({});
+  const [createdCredentials, setCreatedCredentials] = useState(null);
 
   const load = () => { setLoading(true); api.list().then(r => { setItems(r.data); setLoading(false); }); };
   useEffect(load, []);
@@ -20,12 +21,30 @@ export default function CrudPage({ title, api, fields, rowRenderer, formRenderer
 
   const save = async () => {
     try {
-      if (editing) await api.update(editing.id, form);
-      else         await api.create(form);
-      toast.success(editing ? 'Updated!' : 'Created!');
-      setShowForm(false); load();
+      if (editing) {
+        await api.update(editing.id, form);
+        toast.success('Updated!');
+        setShowForm(false);
+      } else {
+        const res = await api.create(form);
+        toast.success('Created!');
+        setShowForm(false);
+        if (res?.data && (res.data.username || res.data.lecturer_id || res.data.registration_number)) {
+          const username = res.data.username || res.data.lecturer_id || res.data.registration_number;
+          const password = res.data.password || form.password;
+          if (password) {
+            setCreatedCredentials({
+              name: res.data.name || form.name,
+              username,
+              password,
+              role: res.data.role || (title === 'Lecturers' ? 'LECTURER' : 'STUDENT')
+            });
+          }
+        }
+      }
+      load();
     } catch(e) {
-      const msg = e.response?.data;
+      const msg = e.response?.data?.detail || e.response?.data;
       toast.error(typeof msg === 'string' ? msg : JSON.stringify(msg));
     }
   };
@@ -90,6 +109,38 @@ export default function CrudPage({ title, api, fields, rowRenderer, formRenderer
           onConfirm={confirmDelete}
           onClose={() => setDeleting(null)}
         />
+      )}
+
+      {createdCredentials && (
+        <Modal title="Account Created Successfully" onClose={() => setCreatedCredentials(null)}>
+          <div style={{ borderBottom: '1px solid var(--border)', paddingBottom: '12px', marginBottom: '16px' }}>
+            <h4 style={{ color: 'var(--green)', margin: 0 }}>Temporary Login Credentials</h4>
+          </div>
+          <p style={{ fontSize: '13px', color: 'var(--muted)', marginBottom: '16px' }}>
+            Please copy these credentials and share them with the user. They will be prompted to change their password upon their first login.
+          </p>
+          <div style={{ background: 'var(--bg)', padding: '16px', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
+            <div style={{ marginBottom: '10px' }}>
+              <strong>Name:</strong> {createdCredentials.name}
+            </div>
+            <div style={{ marginBottom: '10px' }}>
+              <strong>Username / ID:</strong> <code style={{ background: '#e2e8f0', padding: '2px 6px', borderRadius: '4px', fontFamily: 'monospace' }}>{createdCredentials.username}</code>
+            </div>
+            <div style={{ marginBottom: '10px' }}>
+              <strong>Temporary Password:</strong> <code style={{ background: '#e2e8f0', padding: '2px 6px', borderRadius: '4px', fontFamily: 'monospace', fontWeight: 'bold', color: '#e74c3c' }}>{createdCredentials.password}</code>
+            </div>
+            <div>
+              <strong>Role:</strong> {createdCredentials.role}
+            </div>
+          </div>
+          <div className="modal-footer" style={{ marginTop: '20px' }}>
+            <button className="btn btn-primary" onClick={() => {
+              navigator.clipboard.writeText(`Username: ${createdCredentials.username}\nPassword: ${createdCredentials.password}`);
+              toast.success('Copied to clipboard!');
+            }} style={{ marginRight: '10px' }}>Copy Credentials</button>
+            <button className="btn btn-ghost" onClick={() => setCreatedCredentials(null)}>Close</button>
+          </div>
+        </Modal>
       )}
     </div>
   );

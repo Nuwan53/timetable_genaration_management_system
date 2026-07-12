@@ -6,9 +6,9 @@ import { useAuth } from '../context/AuthContext';
 import ruhuna from '../assets/Ruhuna.jpg';
 
 const roles = [
-  { key: 'ADMIN',    label: 'Admin',    icon: <UserCog size={16}/> },
-  { key: 'LECTURER', label: 'Lecturer', icon: <ShieldCheck size={16}/> },
-  { key: 'STUDENT',  label: 'Student',  icon: <GraduationCap size={16}/> },
+  { key: 'ADMIN', label: 'Admin', icon: <UserCog size={16} /> },
+  { key: 'LECTURER', label: 'Lecturer', icon: <ShieldCheck size={16} /> },
+  { key: 'STUDENT', label: 'Student', icon: <GraduationCap size={16} /> },
 ];
 
 export default function Login() {
@@ -33,9 +33,13 @@ export default function Login() {
       const user = await login(username.trim(), password, role);
       toast.success(`Welcome, ${user.username}`);
 
-      const defaultDest = user.role === 'ADMIN' ? '/' : user.role === 'LECTURER' ? '/lecturer' : '/student';
-      const dest = location.state?.from || defaultDest;
-      navigate(dest, { replace: true });
+      if (user.must_change_password) {
+        navigate('/change-password', { replace: true });
+      } else {
+        const defaultDest = user.role === 'ADMIN' ? '/' : user.role === 'LECTURER' ? '/lecturer' : '/student';
+        const dest = location.state?.from || defaultDest;
+        navigate(dest, { replace: true });
+      }
     } catch (err) {
       const msg = err?.response?.data?.detail || 'Invalid credentials';
       toast.error(msg);
@@ -122,12 +126,12 @@ export default function Login() {
                 onClick={() => setShowPw((s) => !s)}
                 aria-label={showPw ? 'Hide password' : 'Show password'}
               >
-                {showPw ? <EyeOff size={16}/> : <Eye size={16}/>}
+                {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
             </div>
 
             <button className="login-btn" type="submit" disabled={loading}>
-              {loading ? 'Signing in…' : `Sign in as ${roles.find(r => r.key===role).label}`}
+              {loading ? 'Signing in…' : `Sign in as ${roles.find(r => r.key === role).label}`}
             </button>
           </form>
 

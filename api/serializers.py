@@ -207,7 +207,7 @@ class StudentAccountSerializer(serializers.Serializer):
     contact_number = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     registration_number = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     student_group_id = serializers.IntegerField(required=False, allow_null=True)
-    must_change_password = serializers.BooleanField(required=False, default=False)
+    must_change_password = serializers.BooleanField(required=False, default=True)
 
     def _split_name(self, user, name):
         parts = [part for part in str(name).split() if part]
@@ -292,7 +292,7 @@ class StudentAccountSerializer(serializers.Serializer):
         password = validated_data.pop('password')
         student_group_id = validated_data.pop('student_group_id', None)
         name = validated_data.pop('name', '')
-        must_change_password = validated_data.pop('must_change_password', False)
+        must_change_password = validated_data.pop('must_change_password', True)
 
         student_group = StudentGroup.objects.filter(pk=student_group_id).first() if student_group_id is not None else None
 
@@ -350,7 +350,7 @@ class StudentAccountSerializer(serializers.Serializer):
                 profile.contact_number = validated_data.get('contact_number') or None
 
             if 'must_change_password' in self.initial_data:
-                profile.must_change_password = validated_data.get('must_change_password', False)
+                profile.must_change_password = validated_data.get('must_change_password', True)
 
             profile.role = 'STUDENT'
             profile.save()

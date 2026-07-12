@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import CrudPage from './CrudPage';
 import { groups, students } from '../api';
+import toast from 'react-hot-toast';
 
 const fields = [
   { key: 'username', label: 'Username' },
@@ -57,15 +58,33 @@ export default function Students() {
       formRenderer={(form, setForm) => {
         const isEditing = Boolean(form.id);
 
+        const generatePassword = () => {
+          const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*";
+          let pw = "";
+          for (let i = 0; i < 10; i++) {
+            pw += chars.charAt(Math.floor(Math.random() * chars.length));
+          }
+          setForm(prev => ({ ...prev, password: pw }));
+          toast.success("Generated random password!");
+        };
+
+        const handleRegChange = (val) => {
+          setForm(prev => ({
+            ...prev,
+            registration_number: val,
+            username: isEditing ? prev.username : val
+          }));
+        };
+
         return (
           <>
             <div className="form-row">
               <div className="form-group">
-                <label>Username</label>
+                <label>Registration Number (Username)</label>
                 <input
-                  value={form.username || ''}
-                  onChange={(event) => setForm({ ...form, username: event.target.value })}
-                  placeholder="student username"
+                  value={form.registration_number || ''}
+                  onChange={(event) => handleRegChange(event.target.value)}
+                  placeholder="e.g. SC/2026/001"
                 />
               </div>
               <div className="form-group">
@@ -79,13 +98,27 @@ export default function Students() {
             </div>
 
             <div className="form-row">
-              <div className="form-group">
-                <label>Registration Number</label>
-                <input
-                  value={form.registration_number || ''}
-                  onChange={(event) => setForm({ ...form, registration_number: event.target.value })}
-                  placeholder="REG-2026-001"
-                />
+              <div className="form-group" style={{ flex: 1 }}>
+                <label>{isEditing ? 'Reset Password (optional)' : 'Initial Password'}</label>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <input
+                    type="text"
+                    value={form.password || ''}
+                    onChange={(event) => setForm({ ...form, password: event.target.value })}
+                    placeholder={isEditing ? 'Leave blank to keep current password' : 'Enter password or auto-generate'}
+                    style={{ flex: 1 }}
+                  />
+                  {!isEditing && (
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      onClick={generatePassword}
+                      style={{ border: '1px solid var(--border)' }}
+                    >
+                      Auto-Generate
+                    </button>
+                  )}
+                </div>
               </div>
               <div className="form-group">
                 <label>Student Group</label>
@@ -123,27 +156,20 @@ export default function Students() {
               </div>
             </div>
 
-            <div className="form-row">
-              <div className="form-group">
-                <label>{isEditing ? 'Reset Password (optional)' : 'Password'}</label>
-                <input
-                  type="password"
-                  value={form.password || ''}
-                  onChange={(event) => setForm({ ...form, password: event.target.value })}
-                  placeholder={isEditing ? 'Leave blank to keep current password' : 'Set initial password'}
-                />
+            {isEditing && (
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Force Password Change</label>
+                  <select
+                    value={String(Boolean(form.must_change_password))}
+                    onChange={(event) => setForm({ ...form, must_change_password: event.target.value === 'true' })}
+                  >
+                    <option value="false">No</option>
+                    <option value="true">Yes</option>
+                  </select>
+                </div>
               </div>
-              <div className="form-group">
-                <label>Force Password Change</label>
-                <select
-                  value={String(Boolean(form.must_change_password))}
-                  onChange={(event) => setForm({ ...form, must_change_password: event.target.value === 'true' })}
-                >
-                  <option value="false">No</option>
-                  <option value="true">Yes</option>
-                </select>
-              </div>
-            </div>
+            )}
           </>
         );
       }}

@@ -43,25 +43,25 @@ WSGI_APPLICATION = 'core.wsgi.application'
 
 # ── MySQL Database ──────────────────────────────────────────────────────────
 # Replace NAME, USER, PASSWORD with your MySQL credentials
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'timetable_db',
-        'USER': 'root',
-        'PASSWORD': '',
-        'HOST': 'localhost',
-        'PORT': '3306',
-        'OPTIONS': {'charset': 'utf8mb4'},
-    }
-}
-
-# ── For development/testing without MySQL, uncomment this instead ───────────
 # DATABASES = {
 #     'default': {
-#         'ENGINE': 'django.db.backends.sqlite3',
-#         'NAME': BASE_DIR / 'db.sqlite3',
+#         'ENGINE': 'django.db.backends.mysql',
+#         'NAME': 'timetable_db',
+#         'USER': 'root',
+#         'PASSWORD': '',
+#         'HOST': 'localhost',
+#         'PORT': '3306',
+#         'OPTIONS': {'charset': 'utf8mb4'},
 #     }
 # }
+
+# ── For development/testing without MySQL, uncomment this instead ───────────
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'db.sqlite3',
+    }
+}
 
 CORS_ALLOW_ALL_ORIGINS = True
 
