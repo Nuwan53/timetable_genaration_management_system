@@ -8,7 +8,7 @@ from django.db import transaction
 from django.utils import timezone
 from rest_framework import viewsets, status
 from rest_framework.permissions import AllowAny, BasePermission, IsAuthenticated
-from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.decorators import action, api_view, permission_classes, authentication_classes
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -122,6 +122,7 @@ def build_student_dashboard(profile, request, semester='S2-2026'):
 
 
 @api_view(['POST'])
+@authentication_classes([]) 
 @permission_classes([AllowAny])
 def auth_login(request):
     username = str(request.data.get('username', '')).strip()
