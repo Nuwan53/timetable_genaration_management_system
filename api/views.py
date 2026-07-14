@@ -1,8 +1,13 @@
+import re
 import secrets
+import string
 
+from django.conf import settings
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
+from django.core.mail import send_mail
 from django.http import HttpResponse
+from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.utils import timezone
 from rest_framework import viewsets, status
@@ -12,6 +17,7 @@ from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
+from openpyxl import load_workbook
 from .models import Course, Lecturer, Venue, StudentGroup, TimeSlot, ScheduleSlot, LecturerRequest, LecturerNotification, Announcement, StudentNotification
 from .serializers import (
     CourseSerializer, LecturerSerializer, VenueSerializer,
@@ -22,6 +28,7 @@ from .serializers import (
     StudentAccountSerializer,
     AnnouncementSerializer, StudentNotificationSerializer,
 )
+from .signals import ensure_demo_accounts
 
 # ── PDF export ───────────────────────────────────────────────────────────────
 from reportlab.lib.pagesizes import A4, landscape
@@ -34,6 +41,85 @@ import io
 DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
 TIMES = ['08:00', '09:00', '10:00', '11:00', '12:00', '13:00',
          '14:00', '15:00', '16:00', '17:00']
+
+
+def normalize_header(value):
+    return re.sub(r'[^a-z0-9]+', '_', str(value or '').strip().lower()).strip('_')
+
+
+def clean_value(value):
+    if value is None:
+        return ''
+    if isinstance(value, str):
+        return value.strip()
+    return str(value).strip()
+
+
+def bool_from_value(value, default=False):
+    if value is None or value == '':
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {'1', 'true', 'yes', 'y', 'on'}
+
+
+def generate_temporary_password(length=10):
+    alphabet = string.ascii_letters + string.digits
+    return ''.join(secrets.choice(alphabet) for _ in range(length))
+
+
+def get_row_value(row, header_map, *names):
+    for name in names:
+        index = header_map.get(normalize_header(name))
+        if index is None or index >= len(row):
+            continue
+        value = row[index]
+        if value is not None and clean_value(value) != '':
+            return value
+    return None
+
+
+def resolve_student_group(row, header_map):
+    group_id = get_row_value(row, header_map, 'student_group_id', 'group_id')
+    if group_id not in (None, ''):
+        try:
+            group = StudentGroup.objects.filter(pk=int(float(group_id))).first()
+        except (TypeError, ValueError):
+            group = None
+        if group:
+            return group
+        raise ValueError(f'Unknown student_group_id {group_id}')
+
+    level = clean_value(get_row_value(row, header_map, 'level', 'group_level'))
+    stream = clean_value(get_row_value(row, header_map, 'stream', 'group_stream'))
+    subgroup = clean_value(get_row_value(row, header_map, 'subgroup', 'group_subgroup'))
+    year = clean_value(get_row_value(row, header_map, 'year', 'group_year'))
+
+    if not level or not stream:
+        return None
+
+    if not year:
+        year = str(timezone.localtime().year)
+
+    group, _created = StudentGroup.objects.get_or_create(
+        level=level,
+        stream=stream,
+        subgroup=subgroup,
+        year=year,
+    )
+    return group
+
+
+def send_student_password_email(*, recipient_email, name, username, password):
+    subject = 'Your Timetable Management System login details'
+    body = (
+        f'Hello {name or username},\n\n'
+        'Your student account has been created.\n\n'
+        f'Username: {username}\n'
+        f'Password: {password}\n\n'
+        'Please sign in and change your password after first login.\n'
+    )
+    send_mail(subject, body, getattr(settings, 'DEFAULT_FROM_EMAIL', 'no-reply@timetable.local'), [recipient_email], fail_silently=False)
 
 
 class IsAdminRole(BasePermission):
@@ -123,6 +209,9 @@ def build_student_dashboard(profile, request, semester='S2-2026'):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def auth_login(request):
+    if settings.DEBUG:
+        ensure_demo_accounts()
+
     username = str(request.data.get('username', '')).strip()
     password = str(request.data.get('password', ''))
     role = str(request.data.get('role', '')).upper().strip()
@@ -161,6 +250,117 @@ class StudentAccountViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         return User.objects.select_related('profile', 'profile__student_group').filter(profile__role='STUDENT').order_by('username')
+
+    @action(detail=False, methods=['post'], url_path='import', parser_classes=[MultiPartParser, FormParser])
+    def import_students(self, request):
+        upload = request.FILES.get('file')
+        if upload is None:
+            return Response({'detail': 'Please upload an Excel file.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        send_emails = bool_from_value(request.data.get('send_emails', True), default=True)
+
+        try:
+            workbook = load_workbook(upload, data_only=True)
+        except Exception:
+            return Response({'detail': 'The uploaded file must be a valid .xlsx workbook.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        sheet = workbook.active
+        rows = list(sheet.iter_rows(values_only=True))
+        if len(rows) < 2:
+            return Response({'detail': 'The workbook must contain a header row and at least one student row.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        headers = [normalize_header(header) for header in rows[0]]
+        header_map = {header: index for index, header in enumerate(headers) if header}
+
+        created = 0
+        updated = 0
+        skipped = 0
+        errors = []
+        results = []
+
+        for row_number, row in enumerate(rows[1:], start=2):
+            if not any(cell not in (None, '') for cell in row):
+                skipped += 1
+                continue
+
+            registration_number = clean_value(get_row_value(row, header_map, 'registration_number', 'reg_no', 'regno', 'student_registration_number', 'username'))
+            full_name = clean_value(get_row_value(row, header_map, 'name', 'full_name', 'student_name'))
+            email = clean_value(get_row_value(row, header_map, 'email', 'student_email'))
+            contact_number = clean_value(get_row_value(row, header_map, 'contact_number', 'phone', 'mobile'))
+            password = clean_value(get_row_value(row, header_map, 'password', 'initial_password', 'first_password'))
+            must_change_password = bool_from_value(get_row_value(row, header_map, 'must_change_password', 'force_password_change'), default=True)
+
+            if not registration_number or not full_name:
+                errors.append({'row': row_number, 'detail': 'registration_number and name are required.'})
+                continue
+
+            try:
+                student_group = resolve_student_group(row, header_map)
+            except ValueError as exc:
+                errors.append({'row': row_number, 'detail': str(exc)})
+                continue
+
+            username = registration_number
+            temporary_password = password or generate_temporary_password()
+            email_sent = False
+
+            try:
+                with transaction.atomic():
+                    user = User.objects.filter(username=username).select_related('profile').first()
+                    if user is None:
+                        user = User.objects.filter(profile__registration_number=registration_number).select_related('profile').first()
+
+                    created_user = user is None
+                    if user is None:
+                        user = User(username=username)
+
+                    parts = [part for part in full_name.split() if part]
+                    user.first_name = parts[0] if parts else ''
+                    user.last_name = ' '.join(parts[1:]) if len(parts) > 1 else ''
+                    user.username = username
+                    user.email = email
+                    if created_user or password:
+                        user.set_password(temporary_password)
+                    user.save()
+
+                    from .models import UserProfile
+                    profile, _ = UserProfile.objects.get_or_create(user=user, defaults={'role': 'STUDENT'})
+                    profile.role = 'STUDENT'
+                    profile.student_group = student_group
+                    profile.registration_number = registration_number
+                    profile.contact_number = contact_number or None
+                    profile.must_change_password = must_change_password or created_user or bool(password)
+                    profile.save()
+
+                if send_emails and email:
+                    try:
+                        send_student_password_email(recipient_email=email, name=full_name, username=username, password=temporary_password)
+                        email_sent = True
+                    except Exception:
+                        email_sent = False
+
+                if created_user:
+                    created += 1
+                else:
+                    updated += 1
+
+                results.append({
+                    'row': row_number,
+                    'registration_number': registration_number,
+                    'username': username,
+                    'status': 'created' if created_user else 'updated',
+                    'email_sent': email_sent,
+                })
+            except IntegrityError as exc:
+                errors.append({'row': row_number, 'detail': str(exc)})
+
+        return Response({
+            'created': created,
+            'updated': updated,
+            'skipped': skipped,
+            'errors': errors,
+            'results': results,
+        })
 
 
 class LecturerMeViewSet(viewsets.ViewSet):
@@ -382,7 +582,29 @@ class StudentProfileView(APIView):
         if profile is None:
             return Response({'detail': 'Student profile not found'}, status=status.HTTP_403_FORBIDDEN)
 
-        serializer = StudentProfileSerializer(profile, data=request.data, partial=True, context={'request': request})
+        current_password = str(request.data.get('current_password', '')).strip()
+        new_password = str(request.data.get('new_password', '')).strip()
+        confirm_password = str(request.data.get('confirm_password', '')).strip()
+        profile_data = request.data.copy()
+
+        if current_password or new_password or confirm_password:
+            if not request.user.check_password(current_password):
+                return Response({'detail': 'Current password is incorrect.'}, status=status.HTTP_400_BAD_REQUEST)
+            if not new_password:
+                return Response({'detail': 'New password is required.'}, status=status.HTTP_400_BAD_REQUEST)
+            if new_password != confirm_password:
+                return Response({'detail': 'Passwords do not match.'}, status=status.HTTP_400_BAD_REQUEST)
+
+            request.user.set_password(new_password)
+            request.user.save(update_fields=['password'])
+            profile.must_change_password = False
+            profile.save(update_fields=['must_change_password'])
+
+        profile_data.pop('current_password', None)
+        profile_data.pop('new_password', None)
+        profile_data.pop('confirm_password', None)
+
+        serializer = StudentProfileSerializer(profile, data=profile_data, partial=True, context={'request': request})
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(StudentProfileSerializer(profile, context={'request': request}).data)

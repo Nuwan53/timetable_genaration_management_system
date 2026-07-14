@@ -24,11 +24,7 @@ def ensure_user(username, password, role, *, lecturer=None, student_group=None, 
     UserProfile.objects.update_or_create(user=user, defaults=profile_defaults)
 
 
-@receiver(post_migrate)
-def seed_demo_accounts(sender, **kwargs):
-    if sender.name != 'api':
-        return
-
+def ensure_demo_accounts():
     lecturer = Lecturer.objects.order_by('id').first()
     if lecturer is None:
         lecturer = Lecturer.objects.create(name='Dr. Sample Lecturer', email='lecturer@example.com', department='Computer Science')
@@ -40,3 +36,15 @@ def seed_demo_accounts(sender, **kwargs):
     ensure_user('admin', 'Admin@123', 'ADMIN', is_superuser=True)
     ensure_user('lecturer', 'Lecturer@123', 'LECTURER', lecturer=lecturer)
     ensure_user('student', 'Student@123', 'STUDENT', student_group=student_group, registration_number='REG-2026-001', contact_number='0712345678')
+
+
+@receiver(post_migrate)
+def seed_demo_accounts(sender, **kwargs):
+    if sender.name != 'api':
+        return
+
+    from django.conf import settings
+    if not settings.DEBUG:
+        return
+
+    ensure_demo_accounts()

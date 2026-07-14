@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import toast from 'react-hot-toast';
 import CrudPage from './CrudPage';
 import { groups, students } from '../api';
 
@@ -19,6 +20,8 @@ function formatGroup(studentGroup) {
 
 export default function Students() {
   const [studentGroups, setStudentGroups] = useState([]);
+  const [importing, setImporting] = useState(false);
+  const [sendEmails, setSendEmails] = useState(true);
 
   useEffect(() => {
     let active = true;
@@ -38,11 +41,45 @@ export default function Students() {
     };
   }, []);
 
+  const handleImport = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) {
+      return;
+    }
+
+    setImporting(true);
+    try {
+      const { data } = await students.import(file, sendEmails);
+      const summary = `${data.created} created, ${data.updated} updated, ${data.skipped} skipped`;
+      toast.success(`Imported students: ${summary}`);
+      if (data.errors?.length) {
+        toast.error(`Some rows failed: ${data.errors.length}`);
+      }
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to import students');
+    } finally {
+      setImporting(false);
+    }
+  };
+
   return (
     <CrudPage
       title="Students"
       api={students}
       fields={fields}
+      extraActions={(
+        <div className="actions" style={{ gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+          <label className="btn btn-ghost btn-sm" style={{ cursor: 'pointer' }}>
+            {importing ? 'Importing…' : 'Upload Excel'}
+            <input type="file" accept=".xlsx" onChange={handleImport} disabled={importing} style={{ display: 'none' }} />
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#475569' }}>
+            <input type="checkbox" checked={sendEmails} onChange={(event) => setSendEmails(event.target.checked)} />
+            Email first-time passwords
+          </label>
+        </div>
+      )}
       rowRenderer={(item) => (
         <>
           <td>{item.username}</td>
