@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Course, Lecturer, Venue, StudentGroup, TimeSlot, ScheduleSlot, UserProfile, Announcement, StudentNotification
+from .models import Course, Lecturer, Venue, StudentGroup, TimeSlot, ScheduleSlot, UserProfile, Announcement, StudentNotification, PublicationRecord
 
 @admin.register(ScheduleSlot)
 class ScheduleSlotAdmin(admin.ModelAdmin):
@@ -29,3 +29,9 @@ class AnnouncementAdmin(admin.ModelAdmin):
 class StudentNotificationAdmin(admin.ModelAdmin):
     list_display = ['title', 'student_group', 'notification_type', 'is_read', 'created_at']
     list_filter = ['notification_type', 'is_read', 'created_at']
+
+
+@admin.register(PublicationRecord)
+class PublicationRecordAdmin(admin.ModelAdmin):
+    list_display = ['version', 'status', 'publisher', 'published_at', 'archived_at']
+    list_filter = ['status', 'published_at']

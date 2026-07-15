@@ -4,7 +4,11 @@ from rest_framework import serializers
 from .models import (
     Course, Lecturer, Venue, StudentGroup, TimeSlot, ScheduleSlot,
     LecturerRequest, LecturerNotification, Announcement, StudentNotification,
-    UserProfile,
+    UserProfile, PublicationRecord,
+    AcademicStream, AcademicLevel, AcademicPathway, PracticalGroup,
+    ScheduleAnalytics, VenueUtilization, ConflictResolution,
+    LecturerAnalytics, StudentGroupAnalytics,
+    SystemSettings, VenueDefault,
 )
 
 
@@ -362,6 +366,22 @@ class StudentAccountSerializer(serializers.Serializer):
         return instance
 
 
+class PublicationRecordSerializer(serializers.ModelSerializer):
+    date = serializers.SerializerMethodField()
+    time = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PublicationRecord
+        fields = ['id', 'date', 'time', 'version', 'publisher', 'initials', 'status', 'notes', 'published_at', 'archived_at']
+        read_only_fields = ['id', 'date', 'time', 'publisher', 'initials', 'status', 'published_at', 'archived_at']
+
+    def get_date(self, obj):
+        return obj.published_at.strftime('%b %d, %Y')
+
+    def get_time(self, obj):
+        return obj.published_at.strftime('%H:%M:%S %p')
+
+
 class LecturerProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = Lecturer
@@ -397,3 +417,112 @@ class StudentNotificationSerializer(serializers.ModelSerializer):
     class Meta:
         model = StudentNotification
         fields = '__all__'
+
+
+class PracticalGroupSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PracticalGroup
+        fields = '__all__'
+
+
+class AcademicPathwaySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AcademicPathway
+        fields = '__all__'
+
+
+class AcademicLevelDetailSerializer(serializers.ModelSerializer):
+    pathways = AcademicPathwaySerializer(many=True, read_only=True)
+    practical_groups = PracticalGroupSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = AcademicLevel
+        fields = '__all__'
+
+
+class AcademicLevelSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AcademicLevel
+        fields = '__all__'
+
+
+class AcademicStreamDetailSerializer(serializers.ModelSerializer):
+    levels = AcademicLevelDetailSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = AcademicStream
+        fields = '__all__'
+
+
+class AcademicStreamSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AcademicStream
+        fields = '__all__'
+
+
+
+class ScheduleAnalyticsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ScheduleAnalytics
+        fields = '__all__'
+
+
+class VenueUtilizationSerializer(serializers.ModelSerializer):
+    venue_name = serializers.CharField(source='venue.code', read_only=True)
+    
+    class Meta:
+        model = VenueUtilization
+        fields = '__all__'
+
+
+class ConflictResolutionSerializer(serializers.ModelSerializer):
+    schedule_slot_data = ScheduleSlotReadSerializer(source='schedule_slot', read_only=True)
+    
+    class Meta:
+        model = ConflictResolution
+        fields = '__all__'
+
+
+class LecturerAnalyticsSerializer(serializers.ModelSerializer):
+    lecturer_name = serializers.CharField(source='lecturer.name', read_only=True)
+    
+    class Meta:
+        model = LecturerAnalytics
+        fields = '__all__'
+
+
+class StudentGroupAnalyticsSerializer(serializers.ModelSerializer):
+    group_display = serializers.CharField(source='student_group.__str__', read_only=True)
+    
+    class Meta:
+        model = StudentGroupAnalytics
+        fields = '__all__'
+
+
+class SystemSettingsSerializer(serializers.ModelSerializer):
+    """Serializer for system-wide settings"""
+    updated_by_username = serializers.CharField(source='updated_by.username', read_only=True)
+    
+    class Meta:
+        model = SystemSettings
+        fields = [
+            'id', 'academic_year', 'semester_type', 'teaching_start', 'teaching_end',
+            'standard_lecture', 'laboratory_session', 'tutorial_workshop',
+            'conflict_alerts', 'publication_confirmations', 'email_list',
+            'created_at', 'updated_at', 'updated_by_username'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at', 'updated_by_username']
+
+
+class VenueDefaultSerializer(serializers.ModelSerializer):
+    """Serializer for departmental default venues"""
+    venue_name = serializers.CharField(source='venue.name', read_only=True)
+    venue_id = serializers.IntegerField(source='venue.id', read_only=True)
+    
+    class Meta:
+        model = VenueDefault
+        fields = [
+            'id', 'department', 'venue', 'venue_name', 'venue_id',
+            'priority', 'is_active', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']

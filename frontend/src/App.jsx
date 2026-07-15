@@ -37,6 +37,9 @@ import Venues from './pages/Venues';
 import Groups from './pages/Groups';
 import TimeSlots from './pages/TimeSlots';
 import Timetable from './pages/Timetable';
+import PublicationManager from './pages/PublicationManager';
+import ReportsAnalytics from './pages/ReportsAnalytics';
+import SystemSettings from './pages/SystemSettings';
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, roles: ['ADMIN', 'LECTURER', 'STUDENT'], type: 'link' },
@@ -47,9 +50,9 @@ const navItems = [
   { to: '/venues', label: 'Venues', icon: MapPin, roles: ['ADMIN'], type: 'link' },
   { to: '/groups', label: 'Student Groups', icon: CalendarDays, roles: ['ADMIN'], type: 'link' },
   { to: '/timeslots', label: 'Time Slots', icon: Clock3, roles: ['ADMIN'], type: 'link' },
-  { label: 'Publication', icon: Send, roles: ['ADMIN'], type: 'action' },
-  { label: 'Reports', icon: BarChart3, roles: ['ADMIN'], type: 'action' },
-  { label: 'Settings', icon: Settings, roles: ['ADMIN'], type: 'action' },
+  { to: '/publication', label: 'Publication', icon: Send, roles: ['ADMIN'], type: 'link' },
+  { to: '/reports', label: 'Reports', icon: BarChart3, roles: ['ADMIN'], type: 'link' },
+  { to: '/settings', label: 'Settings', icon: Settings, roles: ['ADMIN'], type: 'link' },
 ];
 
 // Extra sidebar tab items shown only for STUDENT role (controls StudentDashboard tabs)
@@ -71,6 +74,9 @@ const pageTitle = {
   '/students': 'Students',
   '/groups': 'Student Groups',
   '/timeslots': 'Time Slots',
+  '/publication': 'Publication Manager',
+  '/reports': 'Reports & Analytics',
+  '/settings': 'System Settings',
 };
 
 function AppShell() {
@@ -197,6 +203,9 @@ function AppShell() {
               <Route path="/venues" element={<ProtectedRoute allow={['ADMIN']}><Venues /></ProtectedRoute>} />
               <Route path="/groups" element={<ProtectedRoute allow={['ADMIN']}><Groups /></ProtectedRoute>} />
               <Route path="/timeslots" element={<ProtectedRoute allow={['ADMIN']}><TimeSlots /></ProtectedRoute>} />
+              <Route path="/publication" element={<ProtectedRoute allow={['ADMIN']}><PublicationManager /></ProtectedRoute>} />
+              <Route path="/reports" element={<ProtectedRoute allow={['ADMIN']}><ReportsAnalytics /></ProtectedRoute>} />
+              <Route path="/settings" element={<ProtectedRoute allow={['ADMIN']}><SystemSettings /></ProtectedRoute>} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </div>
