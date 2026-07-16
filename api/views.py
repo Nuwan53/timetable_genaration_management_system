@@ -567,6 +567,56 @@ class AdminStudentCreateView(APIView):
         }, status=status.HTTP_201_CREATED)
 
 
+class AdminFreeSlotsView(APIView):
+    """
+    GET /api/admin/analytics/free-slots/?type=venue&id=<id>&semester=<semester>
+    GET /api/admin/analytics/free-slots/?type=lecturer&id=<id>&semester=<semester>
+
+    Returns every TimeSlot in the system, each tagged with is_free:
+    True  -> no ScheduleSlot exists for the given venue/lecturer at that time
+    False -> that venue/lecturer is already booked at that time
+    """
+    permission_classes = [IsAdminRole]
+
+    def get(self, request):
+        target_type = request.query_params.get('type', 'venue').strip().lower()
+        target_id = request.query_params.get('id')
+        semester = request.query_params.get('semester')
+
+        if not target_id:
+            return Response({'detail': 'id query param is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if target_type not in ('venue', 'lecturer'):
+            return Response({'detail': 'type must be "venue" or "lecturer"'}, status=status.HTTP_400_BAD_REQUEST)
+
+        all_slots = TimeSlot.objects.all().order_by('day', 'start_time')
+
+        schedule_qs = ScheduleSlot.objects.all()
+        if target_type == 'lecturer':
+            schedule_qs = schedule_qs.filter(lecturer_id=target_id)
+        else:
+            schedule_qs = schedule_qs.filter(venue_id=target_id)
+
+        if semester:
+            schedule_qs = schedule_qs.filter(semester=semester)
+
+        occupied_timeslot_ids = set(schedule_qs.values_list('timeslot_id', flat=True))
+
+        results = [
+            {
+                'id': slot.id,
+                'day': slot.day,
+                'start_time': slot.start_time.strftime('%H:%M'),
+                'end_time': slot.end_time.strftime('%H:%M'),
+                'is_free': slot.id not in occupied_timeslot_ids,
+            }
+            for slot in all_slots
+        ]
+
+        return Response(results)
+
+
+
 class ChangePasswordView(APIView):
     permission_classes = [IsAuthenticated]
 

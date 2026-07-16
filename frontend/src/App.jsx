@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
-import { LayoutDashboard, BookOpen, Users, MapPin, Clock, CalendarDays, LayoutGrid, LogOut, Search, Bell, ChevronRight, GraduationCap } from 'lucide-react';
+import { LayoutDashboard, BookOpen, Users, MapPin, Clock, CalendarDays, LayoutGrid, LogOut, Search, Bell, ChevronRight, GraduationCap, CalendarSearch } from 'lucide-react';
 import './index.css';
 
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -18,6 +18,7 @@ import Venues     from './pages/Venues';
 import Groups     from './pages/Groups';
 import TimeSlots  from './pages/TimeSlots';
 import Timetable  from './pages/Timetable';
+import AdminAnalytics from './pages/AdminAnalytics';
 
 const nav = [
   { to:'/',           label:'Dashboard',      icon:<LayoutDashboard size={16}/>, roles:['ADMIN','LECTURER','STUDENT'] },
@@ -28,12 +29,14 @@ const nav = [
   { to:'/venues',     label:'Venues',         icon:<MapPin size={16}/>,          roles:['ADMIN'] },
   { to:'/groups',     label:'Student Groups', icon:<CalendarDays size={16}/>,    roles:['ADMIN'] },
   { to:'/timeslots',  label:'Time Slots',     icon:<Clock size={16}/>,           roles:['ADMIN'] },
+  { to:'/analytics',  label:'Availability',   icon:<CalendarSearch size={16}/>,  roles:['ADMIN'] },
 ];
 
 const pageTitle = {
   '/': 'Dashboard', '/student': 'Dashboard', '/lecturer': 'Dashboard', '/timetable': 'Timetable', '/courses': 'Courses',
   '/lecturers': 'Lecturers', '/venues': 'Venues',
   '/students': 'Students', '/groups': 'Student Groups', '/timeslots': 'Time Slots',
+  '/analytics': 'Availability',
 };
 
 function AppShell() {
@@ -119,6 +122,7 @@ function AppShell() {
             <Route path="/venues"     element={<ProtectedRoute allow={['ADMIN']}><Venues/></ProtectedRoute>}/>
             <Route path="/groups"     element={<ProtectedRoute allow={['ADMIN']}><Groups/></ProtectedRoute>}/>
             <Route path="/timeslots"  element={<ProtectedRoute allow={['ADMIN']}><TimeSlots/></ProtectedRoute>}/>
+            <Route path="/analytics"  element={<ProtectedRoute allow={['ADMIN']}><AdminAnalytics/></ProtectedRoute>}/>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </div>
