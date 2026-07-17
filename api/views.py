@@ -31,6 +31,7 @@ from reportlab.lib.units import cm
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from collections import Counter
+from .emails import send_class_change_email
 import io
 
 DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
@@ -229,6 +230,113 @@ class ScheduleSlotViewSet(viewsets.ModelViewSet):
 
         return qs
 
+
+  # Add this import near the top of views.py, alongside your other imports:
+
+
+
+# --- Inside ScheduleSlotViewSet, add these two methods ---
+# (keep your existing get_serializer_class and get_queryset as they are)
+
+    def perform_update(self, serializer):
+        instance = self.get_object()
+        old_timeslot_id = instance.timeslot_id
+        old_venue_id = instance.venue_id
+
+        updated = serializer.save()
+
+        timeslot_changed = updated.timeslot_id != old_timeslot_id
+        venue_changed = updated.venue_id != old_venue_id
+
+        if not (timeslot_changed or venue_changed):
+            return  # nothing schedule-relevant changed, skip notifications
+
+        # StudentNotification has RESCHEDULE / ROOM_CHANGE as separate types
+        student_notif_type = 'ROOM_CHANGE' if (venue_changed and not timeslot_changed) else 'RESCHEDULE'
+        # LecturerNotification only has a single generic "CHANGE" type — no RESCHEDULE/ROOM_CHANGE choice
+        lecturer_notif_type = 'CHANGE'
+
+        title = f"Schedule Updated: {updated.course.code}"
+        message = (
+            f"Your class has changed to {updated.timeslot.day} "
+            f"{updated.timeslot.start_time.strftime('%H:%M')}-{updated.timeslot.end_time.strftime('%H:%M')} "
+            f"at {updated.venue.code}."
+        )
+
+        LecturerNotification.objects.create(
+            lecturer=updated.lecturer,
+            schedule_slot=updated,
+            title=title,
+            message=message,
+            notification_type=lecturer_notif_type,
+        )
+        StudentNotification.objects.create(
+            student_group=updated.group,
+            schedule_slot=updated,
+            title=title,
+            message=message,
+            notification_type=student_notif_type,
+        )
+
+        student_emails = (
+            User.objects
+            .filter(profile__role='STUDENT', profile__student_group=updated.group)
+            .exclude(email='')
+            .values_list('email', flat=True)
+        )
+
+        send_class_change_email(
+            notification_type=student_notif_type,
+            course_code=updated.course.code,
+            venue_code=updated.venue.code,
+            day=updated.timeslot.day,
+            start_time=updated.timeslot.start_time.strftime('%H:%M'),
+            end_time=updated.timeslot.end_time.strftime('%H:%M'),
+            lecturer_email=updated.lecturer.email,
+            student_emails=student_emails,
+        )
+
+    def perform_destroy(self, instance):
+        # 'CANCEL' is a valid choice on BOTH models — no mapping needed here
+        title = f"Cancelled: {instance.course.code}"
+        message = (
+            f"Your class on {instance.timeslot.day} "
+            f"{instance.timeslot.start_time.strftime('%H:%M')} at {instance.venue.code} "
+            f"has been cancelled."
+        )
+
+        LecturerNotification.objects.create(
+            lecturer=instance.lecturer,
+            title=title,
+            message=message,
+            notification_type='CANCEL',
+        )
+        StudentNotification.objects.create(
+            student_group=instance.group,
+            title=title,
+            message=message,
+            notification_type='CANCEL',
+        )
+
+        student_emails = (
+            User.objects
+            .filter(profile__role='STUDENT', profile__student_group=instance.group)
+            .exclude(email='')
+            .values_list('email', flat=True)
+        )
+
+        send_class_change_email(
+            notification_type='CANCEL',
+            course_code=instance.course.code,
+            venue_code=instance.venue.code,
+            day=instance.timeslot.day,
+            start_time=instance.timeslot.start_time.strftime('%H:%M'),
+            end_time=instance.timeslot.end_time.strftime('%H:%M'),
+            lecturer_email=instance.lecturer.email,
+            student_emails=student_emails,
+        )
+
+        instance.delete()
 
 class LecturerScheduleViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = ScheduleSlotReadSerializer
