@@ -30,6 +30,7 @@ from reportlab.lib import colors
 from reportlab.lib.units import cm
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from collections import Counter
 import io
 
 DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
@@ -616,6 +617,90 @@ class AdminFreeSlotsView(APIView):
         return Response(results)
 
 
+
+
+
+
+class AdminAnalyticsSummaryView(APIView):
+    """
+    GET /api/admin/analytics/summary/?semester=<semester>
+
+    Returns aggregate stats for the Admin analytics dashboard:
+    - room_utilization: % of all timeslots booked, per venue
+    - lecturer_workload: weekly teaching hours + class count, per lecturer
+    - day_distribution: total classes scheduled per weekday
+    - busiest_times: the day+time combinations with the most concurrent bookings
+      across all venues (useful for spotting peak-demand slots)
+    """
+    permission_classes = [IsAdminRole]
+
+    def get(self, request):
+        semester = request.query_params.get('semester', 'S2-2026')
+        all_timeslots_count = TimeSlot.objects.count() or 1
+
+        # ---- Room utilization ----
+        room_utilization = []
+        for venue in Venue.objects.all():
+            booked = (
+                ScheduleSlot.objects
+                .filter(venue=venue, semester=semester)
+                .values('timeslot_id')
+                .distinct()
+                .count()
+            )
+            room_utilization.append({
+                'venue_code': venue.code,
+                'venue_name': venue.name,
+                'booked_slots': booked,
+                'total_slots': all_timeslots_count,
+                'utilization_pct': round((booked / all_timeslots_count) * 100, 1),
+            })
+        room_utilization.sort(key=lambda item: -item['utilization_pct'])
+
+        # ---- Lecturer workload ----
+        lecturer_workload = []
+        for lecturer in Lecturer.objects.all():
+            slots = list(
+                ScheduleSlot.objects
+                .select_related('timeslot')
+                .filter(lecturer=lecturer, semester=semester)
+            )
+            total_minutes = 0
+            for slot in slots:
+                start = slot.timeslot.start_time
+                end = slot.timeslot.end_time
+                total_minutes += (end.hour * 60 + end.minute) - (start.hour * 60 + start.minute)
+            lecturer_workload.append({
+                'lecturer_name': lecturer.name,
+                'classes_count': len(slots),
+                'weekly_hours': round(total_minutes / 60, 1),
+            })
+        lecturer_workload.sort(key=lambda item: -item['weekly_hours'])
+
+        # ---- Classes per day ----
+        day_counts = {day: 0 for day in DAYS}
+        for slot in ScheduleSlot.objects.select_related('timeslot').filter(semester=semester):
+            day_counts[slot.timeslot.day] = day_counts.get(slot.timeslot.day, 0) + 1
+        day_distribution = [{'day': day, 'classes': day_counts.get(day, 0)} for day in DAYS]
+
+        # ---- Busiest time slots (most concurrent bookings across all venues) ----
+        time_counter = Counter()
+        for slot in ScheduleSlot.objects.select_related('timeslot').filter(semester=semester):
+            key = (slot.timeslot.day, slot.timeslot.start_time.strftime('%H:%M'))
+            time_counter[key] += 1
+
+        busiest_times = [
+            {'day': key[0], 'time': key[1], 'count': count}
+            for key, count in sorted(time_counter.items(), key=lambda kv: -kv[1])[:8]
+        ]
+
+        return Response({
+            'semester': semester,
+            'room_utilization': room_utilization,
+            'lecturer_workload': lecturer_workload,
+            'day_distribution': day_distribution,
+            'busiest_times': busiest_times,
+        })
 
 class ChangePasswordView(APIView):
     permission_classes = [IsAuthenticated]

@@ -7,7 +7,7 @@ from .views import (
     LecturerRequestViewSet, LecturerNotificationViewSet,
     StudentDashboardView, StudentProfileView,
     StudentAccountViewSet,
-    AdminLecturerCreateView, AdminStudentCreateView, ChangePasswordView,AdminFreeSlotsView
+    AdminLecturerCreateView, AdminStudentCreateView, ChangePasswordView,AdminFreeSlotsView,AdminAnalyticsSummaryView
 )
 
 router = DefaultRouter()
@@ -25,6 +25,7 @@ urlpatterns = [
     path('admin/lecturers/', AdminLecturerCreateView.as_view()),
     path('admin/students/', AdminStudentCreateView.as_view()),
     path('admin/analytics/free-slots/', AdminFreeSlotsView.as_view(), name='admin-free-slots'),
+    path('admin/analytics/summary/', AdminAnalyticsSummaryView.as_view(), name='admin-analytics-summary'),
     path('student/dashboard/', StudentDashboardView.as_view()),
     path('student/profile/', StudentProfileView.as_view()),
     path('lecturer/me/', LecturerMeViewSet.as_view({'get': 'list', 'put': 'update', 'patch': 'update'})),
