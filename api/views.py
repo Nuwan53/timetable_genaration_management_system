@@ -35,6 +35,7 @@ from .emails import send_class_change_email
 import io
 import csv
 from .emails import send_credentials_email
+from .scheduler import generate_timetable_for_group
 
 DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
 TIMES = ['08:00', '09:00', '10:00', '11:00', '12:00', '13:00',
@@ -1013,6 +1014,106 @@ class AdminAnalyticsSummaryView(APIView):
             'lecturer_workload': lecturer_workload,
             'day_distribution': day_distribution,
             'busiest_times': busiest_times,
+        })
+
+
+
+
+class AdminAutoScheduleView(APIView):
+    """
+    POST /api/admin/scheduling/auto-generate/
+
+    Body:
+    {
+        "group_id": 3,
+        "semester": "S2-2026",
+        "requirements": [
+            {"course_id": 5, "lecturer_id": 2, "venue_type": "lecture"},
+            {"course_id": 7, "lecturer_id": 4},
+            ...
+        ]
+    }
+
+    Runs the backtracking solver and returns a PREVIEW only — nothing is
+    saved to the database here. Admin reviews the suggestion in the UI and
+    creates the real ScheduleSlot rows via the normal schedule-slot
+    creation endpoint once they're happy with it.
+    """
+    permission_classes = [IsAdminRole]
+
+    def post(self, request):
+        group_id = request.data.get('group_id')
+        semester = request.data.get('semester', 'S2-2026')
+        requirements = request.data.get('requirements', [])
+
+        if not group_id:
+            return Response({'detail': 'group_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not requirements:
+            return Response({'detail': 'At least one requirement (course + lecturer) is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            group = StudentGroup.objects.get(pk=group_id)
+        except StudentGroup.DoesNotExist:
+            return Response({'detail': 'Student group not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Validate + resolve each requirement's course/lecturer up front,
+        # so the solver only ever deals with real objects.
+        resolved_requirements = []
+        for req in requirements:
+            try:
+                course = Course.objects.get(pk=req.get('course_id'))
+                lecturer = Lecturer.objects.get(pk=req.get('lecturer_id'))
+            except (Course.DoesNotExist, Lecturer.DoesNotExist):
+                return Response(
+                    {'detail': f'Invalid course_id or lecturer_id in requirement: {req}'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            resolved_requirements.append({
+                'course': course,
+                'lecturer': lecturer,
+                'lecturer_id': lecturer.id,
+                'venue_type': req.get('venue_type'),
+            })
+
+        assignments, is_complete = generate_timetable_for_group(group_id, semester, resolved_requirements)
+
+        results = []
+        for req, assignment in zip(resolved_requirements, assignments):
+            if assignment is None:
+                results.append({
+                    'course_id': req['course'].id,
+                    'course_code': req['course'].code,
+                    'course_name': req['course'].name,
+                    'lecturer_id': req['lecturer'].id,
+                    'lecturer_name': req['lecturer'].name,
+                    'status': 'unassigned',
+                })
+            else:
+                timeslot, venue = assignment
+                results.append({
+                    'course_id': req['course'].id,
+                    'course_code': req['course'].code,
+                    'course_name': req['course'].name,
+                    'lecturer_id': req['lecturer'].id,
+                    'lecturer_name': req['lecturer'].name,
+                    'timeslot_id': timeslot.id,
+                    'day': timeslot.day,
+                    'start_time': timeslot.start_time.strftime('%H:%M'),
+                    'end_time': timeslot.end_time.strftime('%H:%M'),
+                    'venue_id': venue.id,
+                    'venue_code': venue.code,
+                    'venue_name': venue.name,
+                    'status': 'assigned',
+                })
+
+        return Response({
+            'group_id': group_id,
+            'group_display': str(group),
+            'semester': semester,
+            'is_complete': is_complete,
+            'assigned_count': sum(1 for r in results if r['status'] == 'assigned'),
+            'unassigned_count': sum(1 for r in results if r['status'] == 'unassigned'),
+            'results': results,
         })
 
 class ChangePasswordView(APIView):

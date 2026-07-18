@@ -7,7 +7,7 @@ from .views import (
     LecturerRequestViewSet, LecturerNotificationViewSet,
     StudentDashboardView, StudentProfileView,
     StudentAccountViewSet,
-    AdminLecturerCreateView, AdminStudentCreateView, ChangePasswordView,AdminFreeSlotsView,AdminAnalyticsSummaryView,AdminBulkStudentUploadView, AdminBulkLecturerUploadView
+    AdminLecturerCreateView, AdminStudentCreateView, ChangePasswordView,AdminFreeSlotsView,AdminAnalyticsSummaryView,AdminBulkStudentUploadView, AdminBulkLecturerUploadView, AdminAutoScheduleView
 )
 
 router = DefaultRouter()
@@ -28,6 +28,7 @@ urlpatterns = [
     path('admin/analytics/summary/', AdminAnalyticsSummaryView.as_view(), name='admin-analytics-summary'),
     path('admin/students/bulk-upload/', AdminBulkStudentUploadView.as_view(), name='admin-bulk-students'),
     path('admin/lecturers/bulk-upload/', AdminBulkLecturerUploadView.as_view(), name='admin-bulk-lecturers'),
+    path('admin/scheduling/auto-generate/', AdminAutoScheduleView.as_view(), name='admin-auto-schedule'),
     path('student/dashboard/', StudentDashboardView.as_view()),
     path('student/profile/', StudentProfileView.as_view()),
     path('lecturer/me/', LecturerMeViewSet.as_view({'get': 'list', 'put': 'update', 'patch': 'update'})),
