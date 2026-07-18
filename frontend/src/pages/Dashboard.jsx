@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { courses, lecturers, venues, groups, slots } from '../api';
-import { BookOpen, Users, MapPin, CalendarDays, LayoutGrid } from 'lucide-react';
+import { BookOpen, Users, MapPin, CalendarDays, Clock, LayoutGrid, Download, Check } from 'lucide-react';
 
 export default function Dashboard() {
   const [counts, setCounts] = useState({});
@@ -22,11 +22,53 @@ export default function Dashboard() {
     { label: 'Scheduled Slots',val: counts.slots,    icon: <LayoutGrid size={20}/>,   bg: '#ccfbf1', color: '#065f46' },
   ];
 
+  // Each step is tied to a real count where possible, so its checkmark
+  // reflects actual setup progress rather than being purely decorative.
+  const steps = [
+    {
+      key: 'courses', icon: <BookOpen size={16} />,
+      title: 'Add Courses', desc: 'Create subject codes like MAT121β with credit hours.',
+      done: (counts.courses ?? 0) > 0,
+    },
+    {
+      key: 'lecturers', icon: <Users size={16} />,
+      title: 'Add Lecturers', desc: 'Register lecturers with their email and department.',
+      done: (counts.lecturers ?? 0) > 0,
+    },
+    {
+      key: 'venues', icon: <MapPin size={16} />,
+      title: 'Add Venues', desc: 'Set up lecture halls and labs — CS AUD, PLT, BLT, MLT01, and more.',
+      done: (counts.venues ?? 0) > 0,
+    },
+    {
+      key: 'groups', icon: <CalendarDays size={16} />,
+      title: 'Add Student Groups', desc: 'Define groups such as Level I Physical Science.',
+      done: (counts.groups ?? 0) > 0,
+    },
+    {
+      key: 'slots', icon: <Clock size={16} />,
+      title: 'Add Time Slots', desc: 'Create weekly time blocks, e.g. Monday 08:00–08:55.',
+      done: (counts.slots ?? 0) > 0,
+    },
+    {
+      key: 'timetable', icon: <LayoutGrid size={16} />,
+      title: 'Build the Timetable', desc: 'Assign slots to courses, lecturers, and venues — conflicts are detected automatically.',
+      done: false,
+    },
+    {
+      key: 'export', icon: <Download size={16} />,
+      title: 'Export PDF', desc: 'Download a printable timetable for any level or stream, ready to distribute.',
+      done: false,
+    },
+  ];
+
+  const completedCount = steps.filter((s) => s.done).length;
+
   return (
-    <div>
+    <div style={{ display: 'grid', gap: 20 }}>
       <div className="stats-row">
-        {stats.map(s => (
-          <div className="stat-card" key={s.label}>
+        {stats.map((s, index) => (
+          <div className="stat-card qs-fade-in" style={{ animationDelay: `${index * 60}ms` }} key={s.label}>
             <div className="stat-icon" style={{background: s.bg, color: s.color}}>{s.icon}</div>
             <div>
               <div className="stat-val">{s.val ?? '—'}</div>
@@ -35,17 +77,33 @@ export default function Dashboard() {
           </div>
         ))}
       </div>
+
       <div className="card">
-        <div className="card-header"><span className="card-title">Quick Start Guide</span></div>
-        <ol style={{fontSize:14, lineHeight:2.2, paddingLeft:20, color:'#475569'}}>
-          <li>Add <strong>Courses</strong> (subject codes like MAT121β)</li>
-          <li>Add <strong>Lecturers</strong> with their email and department</li>
-          <li>Add <strong>Venues</strong> (CS AUD, PLT, BLT, MLT01...)</li>
-          <li>Add <strong>Student Groups</strong> (Level I Physical Science, etc.)</li>
-          <li>Add <strong>Time Slots</strong> (Monday 08:00–08:55, etc.)</li>
-          <li>Go to <strong>Timetable</strong> to assign slots — conflicts are detected automatically</li>
-          <li>Use <strong>Export PDF</strong> to download the printable timetable</li>
-        </ol>
+        <div className="card-header">
+          <span className="card-title">Quick Start Guide</span>
+          <span className="badge badge-blue">{completedCount} / {steps.length} set up</span>
+        </div>
+
+        <div className="qs-timeline">
+          {steps.map((step, index) => (
+            <div
+              className={`qs-step qs-fade-in${step.done ? ' qs-step-done' : ''}`}
+              style={{ animationDelay: `${150 + index * 90}ms` }}
+              key={step.key}
+            >
+              <div className="qs-step-marker">
+                <div className={`qs-badge${step.done ? ' qs-badge-done' : ''}`}>
+                  {step.done ? <Check size={14} /> : step.icon}
+                </div>
+                {index < steps.length - 1 && <div className={`qs-line${step.done ? ' qs-line-done' : ''}`} />}
+              </div>
+              <div className="qs-step-body">
+                <div className="qs-step-title">{step.title}</div>
+                <div className="qs-step-desc">{step.desc}</div>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );

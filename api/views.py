@@ -13,7 +13,7 @@ from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
-from .models import Course, Lecturer, Venue, StudentGroup, TimeSlot, ScheduleSlot, LecturerRequest, LecturerNotification, Announcement, StudentNotification
+from .models import Course, Lecturer, Venue, StudentGroup, TimeSlot, ScheduleSlot, LecturerRequest, LecturerNotification, Announcement, StudentNotification, UserProfile
 from .serializers import (
     CourseSerializer, LecturerSerializer, VenueSerializer,
     StudentGroupSerializer, TimeSlotSerializer,
@@ -33,6 +33,8 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from collections import Counter
 from .emails import send_class_change_email
 import io
+import csv
+from .emails import send_credentials_email
 
 DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
 TIMES = ['08:00', '09:00', '10:00', '11:00', '12:00', '13:00',
@@ -675,6 +677,209 @@ class AdminStudentCreateView(APIView):
             'must_change_password': True
         }, status=status.HTTP_201_CREATED)
 
+
+# Add these imports near the top of views.py, alongside your other imports:
+
+
+
+class AdminBulkStudentUploadView(APIView):
+    """
+    POST /api/admin/students/bulk-upload/
+    Accepts a CSV file (field name: 'file') with columns:
+    name, registration_number, email, level, stream, year, subgroup (optional), contact_number (optional)
+
+    Creates one account per row, generates a random password for each,
+    and emails that person their own credentials. One bad row does not
+    affect any other row — each row commits or fails independently.
+    """
+    permission_classes = [IsAdminRole]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request):
+        file = request.FILES.get('file')
+        if not file:
+            return Response({'detail': 'CSV file is required (field name: file).'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            decoded = file.read().decode('utf-8-sig')
+        except UnicodeDecodeError:
+            return Response({'detail': 'Could not read file. Please upload a UTF-8 encoded CSV.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        reader = csv.DictReader(io.StringIO(decoded))
+        required_columns = {'name', 'registration_number', 'email', 'level', 'stream', 'year'}
+        available_columns = set(reader.fieldnames or [])
+
+        if not required_columns.issubset(available_columns):
+            missing = required_columns - available_columns
+            return Response(
+                {'detail': f'CSV is missing required columns: {", ".join(sorted(missing))}'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        results = []
+
+        for idx, row in enumerate(reader, start=2):  # row 1 is the header
+            name = (row.get('name') or '').strip()
+            registration_number = (row.get('registration_number') or '').strip()
+            email = (row.get('email') or '').strip()
+            level = (row.get('level') or '').strip()
+            stream = (row.get('stream') or '').strip()
+            subgroup = (row.get('subgroup') or '').strip()
+            year = (row.get('year') or '').strip()
+            contact_number = (row.get('contact_number') or '').strip()
+
+            try:
+                with transaction.atomic():
+                    if not name or not registration_number or not email:
+                        raise ValueError('name, registration_number, and email are required.')
+
+                    if User.objects.filter(username=registration_number).exists():
+                        raise ValueError('Registration number already in use.')
+                    if UserProfile.objects.filter(registration_number=registration_number).exists():
+                        raise ValueError('Registration number already in use.')
+
+                    try:
+                        student_group = StudentGroup.objects.get(
+                            level=level, stream=stream, subgroup=subgroup, year=year
+                        )
+                    except StudentGroup.DoesNotExist:
+                        raise ValueError(
+                            f'No matching student group for level={level}, stream={stream}, '
+                            f'subgroup="{subgroup}", year={year}.'
+                        )
+
+                    raw_password = generate_random_password()
+                    parts = [p for p in name.split() if p]
+                    first_name = parts[0] if parts else ''
+                    last_name = ' '.join(parts[1:]) if len(parts) > 1 else ''
+
+                    user = User.objects.create(
+                        username=registration_number, email=email,
+                        first_name=first_name, last_name=last_name,
+                    )
+                    user.set_password(raw_password)
+                    user.save()
+
+                    UserProfile.objects.create(
+                        user=user, role='STUDENT', student_group=student_group,
+                        registration_number=registration_number, contact_number=contact_number,
+                        must_change_password=True,
+                    )
+
+                send_credentials_email(name, email, registration_number, raw_password, 'Student')
+                results.append({
+                    'row': idx, 'status': 'success', 'name': name,
+                    'registration_number': registration_number, 'email': email,
+                })
+            except Exception as exc:
+                results.append({
+                    'row': idx, 'status': 'error', 'name': name,
+                    'registration_number': registration_number, 'detail': str(exc),
+                })
+
+        success_count = sum(1 for r in results if r['status'] == 'success')
+        return Response({
+            'total': len(results),
+            'success_count': success_count,
+            'failed_count': len(results) - success_count,
+            'results': results,
+        }, status=status.HTTP_201_CREATED)
+
+
+class AdminBulkLecturerUploadView(APIView):
+    """
+    POST /api/admin/lecturers/bulk-upload/
+    Accepts a CSV file (field name: 'file') with columns:
+    name, email, department (optional), lecturer_id (optional — auto-generated if blank)
+    """
+    permission_classes = [IsAdminRole]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request):
+        file = request.FILES.get('file')
+        if not file:
+            return Response({'detail': 'CSV file is required (field name: file).'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            decoded = file.read().decode('utf-8-sig')
+        except UnicodeDecodeError:
+            return Response({'detail': 'Could not read file. Please upload a UTF-8 encoded CSV.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        reader = csv.DictReader(io.StringIO(decoded))
+        required_columns = {'name', 'email'}
+        available_columns = set(reader.fieldnames or [])
+
+        if not required_columns.issubset(available_columns):
+            missing = required_columns - available_columns
+            return Response(
+                {'detail': f'CSV is missing required columns: {", ".join(sorted(missing))}'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        results = []
+
+        for idx, row in enumerate(reader, start=2):
+            name = (row.get('name') or '').strip()
+            email = (row.get('email') or '').strip()
+            department = (row.get('department') or '').strip()
+            lecturer_id = (row.get('lecturer_id') or '').strip()
+
+            try:
+                with transaction.atomic():
+                    if not name or not email:
+                        raise ValueError('name and email are required.')
+
+                    if Lecturer.objects.filter(email=email).exists():
+                        raise ValueError('Lecturer with this email already exists.')
+
+                    if not lecturer_id:
+                        lecturer_id = generate_lecturer_id()
+                    elif Lecturer.objects.filter(lecturer_id=lecturer_id).exists():
+                        raise ValueError('Lecturer ID must be unique.')
+
+                    if User.objects.filter(username=lecturer_id).exists():
+                        raise ValueError(f'A user with username {lecturer_id} already exists.')
+
+                    raw_password = generate_random_password()
+
+                    lecturer = Lecturer.objects.create(
+                        lecturer_id=lecturer_id, name=name, email=email,
+                        department=department, must_change_password=True,
+                    )
+
+                    parts = [p for p in name.split() if p]
+                    first_name = parts[0] if parts else ''
+                    last_name = ' '.join(parts[1:]) if len(parts) > 1 else ''
+
+                    user = User.objects.create(
+                        username=lecturer_id, email=email,
+                        first_name=first_name, last_name=last_name,
+                    )
+                    user.set_password(raw_password)
+                    user.save()
+
+                    UserProfile.objects.create(
+                        user=user, role='LECTURER', lecturer=lecturer, must_change_password=True,
+                    )
+
+                send_credentials_email(name, email, lecturer_id, raw_password, 'Lecturer')
+                results.append({
+                    'row': idx, 'status': 'success', 'name': name,
+                    'lecturer_id': lecturer_id, 'email': email,
+                })
+            except Exception as exc:
+                results.append({
+                    'row': idx, 'status': 'error', 'name': name,
+                    'lecturer_id': lecturer_id, 'detail': str(exc),
+                })
+
+        success_count = sum(1 for r in results if r['status'] == 'success')
+        return Response({
+            'total': len(results),
+            'success_count': success_count,
+            'failed_count': len(results) - success_count,
+            'results': results,
+        }, status=status.HTTP_201_CREATED)
 
 class AdminFreeSlotsView(APIView):
     """

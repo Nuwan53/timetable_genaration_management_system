@@ -42,3 +42,32 @@ def send_class_change_email(notification_type, course_code, venue_code, day, sta
         recipient_list=recipients,
         fail_silently=True,
     )
+
+# Add this function to your existing api/emails.py, alongside send_class_change_email
+
+
+def send_credentials_email(name, email, username, password, role):
+    """
+    Sends first-time login credentials to a single newly created
+    student or lecturer account. Called once per person during
+    bulk registration, so each recipient only sees their own details.
+    """
+    subject = "Your Timetable Manager Account"
+    body = (
+        f"Hello {name},\n\n"
+        f"An account has been created for you on the Faculty Timetable Management System.\n\n"
+        f"Role: {role}\n"
+        f"Username: {username}\n"
+        f"Temporary Password: {password}\n\n"
+        f"Please log in at the Timetable Manager. You will be required to set a new "
+        f"password on your first login.\n\n"
+        f"Regards,\nFaculty of Science, University of Ruhuna"
+    )
+
+    send_mail(
+        subject=subject,
+        message=body,
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        recipient_list=[email],
+        fail_silently=True,
+    )
