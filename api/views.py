@@ -1149,3 +1149,113 @@ class ChangePasswordView(APIView):
                     profile.lecturer.save(update_fields=['must_change_password'])
 
         return Response({'detail': 'Password changed successfully.'}, status=status.HTTP_200_OK)
+
+
+
+
+class AdminAccountsView(APIView):
+    """
+    GET  /api/admin/admins/  -> list every Admin account
+    POST /api/admin/admins/  -> create a new Admin account
+
+    POST body: { "name": "...", "email": "...", "password": "" (optional, auto-generated if blank) }
+    Uses email as the username, since Admins don't have a natural ID
+    scheme the way Lecturers/Students do (lecturer_id / registration_number).
+    """
+    permission_classes = [IsAdminRole]
+
+    def get(self, request):
+        from .models import UserProfile
+        admins = User.objects.filter(profile__role='ADMIN').order_by('username')
+        results = [
+            {
+                'id': admin.id,
+                'username': admin.username,
+                'name': admin.get_full_name().strip() or admin.username,
+                'email': admin.email,
+                'date_joined': admin.date_joined,
+                'is_you': admin.id == request.user.id,
+            }
+            for admin in admins
+        ]
+        return Response(results)
+
+    @transaction.atomic
+    def post(self, request):
+        from .models import UserProfile
+
+        name = request.data.get('name', '').strip()
+        email = request.data.get('email', '').strip()
+        password = request.data.get('password', '').strip()
+
+        if not name or not email:
+            return Response({'detail': 'Name and Email are required fields.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if User.objects.filter(email=email).exists():
+            return Response({'detail': 'An account with this email already exists.'}, status=status.HTTP_400_BAD_REQUEST)
+        if User.objects.filter(username=email).exists():
+            return Response({'detail': 'An account with this username already exists.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        raw_password = password or generate_random_password()
+
+        parts = [p for p in name.split() if p]
+        first_name = parts[0] if parts else ''
+        last_name = ' '.join(parts[1:]) if len(parts) > 1 else ''
+
+        user = User.objects.create(
+            username=email, email=email,
+            first_name=first_name, last_name=last_name,
+        )
+        user.set_password(raw_password)
+        user.save()
+
+        UserProfile.objects.create(user=user, role='ADMIN', must_change_password=True)
+
+        send_credentials_email(name, email, email, raw_password, 'Admin')
+
+        return Response({
+            'id': user.id,
+            'username': email,
+            'name': name,
+            'email': email,
+            'password': raw_password,
+            'must_change_password': True,
+        }, status=status.HTTP_201_CREATED)
+
+
+class AdminMeView(APIView):
+    """
+    GET   /api/admin/me/  -> current admin's own profile
+    PATCH /api/admin/me/  -> update own name, email, avatar (multipart/form-data)
+    Deliberately only ever touches request.user — no id parameter, so an
+    Admin can never edit another Admin's profile through this endpoint.
+    """
+    permission_classes = [IsAdminRole]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def get(self, request):
+        return Response(serialize_user(request.user, request=request))
+
+    def patch(self, request):
+        user = request.user
+        name = request.data.get('name', '').strip()
+        email = request.data.get('email', '').strip()
+
+        if name:
+            parts = [p for p in name.split() if p]
+            user.first_name = parts[0] if parts else ''
+            user.last_name = ' '.join(parts[1:]) if len(parts) > 1 else ''
+        if email:
+            if User.objects.filter(email=email).exclude(id=user.id).exists():
+                return Response({'detail': 'This email is already in use by another account.'}, status=status.HTTP_400_BAD_REQUEST)
+            user.email = email
+        user.save()
+
+        avatar_file = request.FILES.get('avatar')
+        if avatar_file:
+            profile = getattr(user, 'profile', None)
+            if profile:
+                profile.avatar = avatar_file
+                profile.save(update_fields=['avatar'])
+
+        return Response(serialize_user(user, request=request))
