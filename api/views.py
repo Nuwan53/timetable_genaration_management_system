@@ -631,11 +631,12 @@ class AdminStudentCreateView(APIView):
 
         # Get group
         student_group = None
-        if student_group_id:
-            try:
-                student_group = StudentGroup.objects.get(pk=student_group_id)
-            except StudentGroup.DoesNotExist:
-                return Response({'detail': 'Invalid Student Group selected.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not student_group_id:
+            return Response({'detail': 'Student Group is required — it determines which subjects the student is enrolled in.'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            student_group = StudentGroup.objects.get(pk=student_group_id)
+        except StudentGroup.DoesNotExist:
+            return Response({'detail': 'Invalid Student Group selected.'}, status=status.HTTP_400_BAD_REQUEST)
 
         # Handle password
         raw_password = password
