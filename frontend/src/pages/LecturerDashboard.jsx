@@ -6,6 +6,8 @@ import {
 } from 'lucide-react';
 import { lecturerApi } from '../api';
 import { useAuth } from '../context/AuthContext';
+import { useSearchParams } from 'react-router-dom';
+
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
@@ -23,7 +25,8 @@ function formatTimeRange(slot) {
 
 export default function LecturerDashboard() {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState('overview');
+  const [searchParams] = useSearchParams();
+  const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'overview');
   const [items, setItems] = useState([]);
   const [notifications, setNotifications] = useState([]);
   const [requests, setRequests] = useState([]);
@@ -56,6 +59,7 @@ export default function LecturerDashboard() {
   };
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.lecturer_id]);

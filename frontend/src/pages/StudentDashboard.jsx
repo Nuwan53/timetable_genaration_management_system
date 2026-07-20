@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { studentApi } from '../api';
 import { useAuth } from '../context/AuthContext';
+import { useSearchParams } from 'react-router-dom';
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
@@ -50,8 +51,8 @@ function getNotificationTone(type) {
 
 export default function StudentDashboard() {
   const { user, updateUser } = useAuth();
-  const [activeTab, setActiveTab] = useState('overview');
-  const [dashboard, setDashboard] = useState(null);
+  const [searchParams] = useSearchParams();
+  const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'overview');  const [dashboard, setDashboard] = useState(null);
   const [filters, setFilters] = useState({ day: '', subject: '' });
   const [profileForm, setProfileForm] = useState({ name: '', email: '', contact_number: '', registration_number: '', avatar_url: '', enrolled_subjects: [], student_group: null });
   const [avatarFile, setAvatarFile] = useState(null);

@@ -1,12 +1,17 @@
 import { useEffect, useState, useCallback } from 'react';
 import { slots, courses, lecturers, venues, groups, timeslots } from '../api';
+// eslint-disable-next-line no-unused-vars
 import { Download, Plus, X } from 'lucide-react';
 import Modal from '../components/Modal';
 import toast from 'react-hot-toast';
+import { useAuth } from '../context/AuthContext';
 
 const DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday'];
 
 export default function Timetable() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'ADMIN';
+
   const [slotList, setSlotList]   = useState([]);
   const [allTimeslots, setAllTS]  = useState([]);
   const [filterLevel, setFL]      = useState('I');
@@ -16,6 +21,7 @@ export default function Timetable() {
 
   // Form data
   const [showForm, setShowForm]   = useState(false);
+  // eslint-disable-next-line no-unused-vars
   const [clickedSlot, setClicked] = useState(null); // {timeslot_id, day}
   const [form, setForm]           = useState({});
   const [conflicts, setConflicts] = useState([]);
@@ -31,6 +37,7 @@ export default function Timetable() {
       .then(r => { setSlotList(r.data); setLoading(false); });
   }, [filterLevel, filterStream, filterSem]);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { loadSlots(); }, [loadSlots]);
 
   useEffect(() => {
@@ -56,6 +63,8 @@ export default function Timetable() {
   });
 
   const openAdd = (tsId, day) => {
+    if (!isAdmin) return; // safety net — should never be reachable by non-admins anyway
+    // eslint-disable-next-line no-unused-vars
     const ts = allTimeslots.find(t => t.id === tsId);
     const matchedGroups = allGroups.filter(g => g.level === filterLevel && g.stream === filterStream);
     setClicked({ timeslot_id: tsId, day });
@@ -74,6 +83,7 @@ export default function Timetable() {
 
   const deleteSlot = async (id, e) => {
     e.stopPropagation();
+    if (!isAdmin) return;
     await slots.remove(id);
     toast.success('Slot removed');
     loadSlots();
@@ -87,24 +97,58 @@ export default function Timetable() {
 
     setSaving(true);
     setConflicts([]);
-    try {
-      const results = await Promise.all(
-        form.selectedGroups.map(groupId =>
-          slots.create({
-            ...form,
-            group: groupId,
-            selectedGroups: undefined,
-          })
-        )
-      );
-      toast.success(`Slot added for ${results.length} group(s)!`);
+
+    const targets = form.selectedGroups;
+
+    // allSettled — unlike Promise.all, this lets every group's create
+    // attempt run independently. A conflict on one group no longer hides
+    // the fact that the others already succeeded.
+    const outcomes = await Promise.allSettled(
+      targets.map(groupId =>
+        slots.create({ ...form, group: groupId, selectedGroups: undefined })
+      )
+    );
+
+    const succeededGroupIds = [];
+    const failedGroupIds = [];
+    const collectedConflicts = [];
+
+    outcomes.forEach((outcome, index) => {
+      const groupId = targets[index];
+      if (outcome.status === 'fulfilled') {
+        succeededGroupIds.push(groupId);
+      } else {
+        failedGroupIds.push(groupId);
+        const data = outcome.reason?.response?.data;
+        if (data?.conflicts?.length) {
+          collectedConflicts.push(...data.conflicts);
+        } else {
+          const groupLabel = allGroups.find(g => g.id === groupId)?.display || `Group #${groupId}`;
+          collectedConflicts.push(`${groupLabel}: could not be saved (${data?.detail || 'unknown error'})`);
+        }
+      }
+    });
+
+    // Always refresh — whatever DID save is now visible immediately,
+    // instead of silently sitting in the DB until the next page load.
+    loadSlots();
+    setSaving(false);
+
+    if (failedGroupIds.length === 0) {
+      toast.success(`Slot added for ${succeededGroupIds.length} group(s)!`);
       setShowForm(false);
-      loadSlots();
-    } catch(err) {
-      const data = err.response?.data;
-      if (data?.conflicts) { setConflicts(data.conflicts); }
-      else toast.error('Failed to save: ' + JSON.stringify(data));
-    } finally { setSaving(false); }
+      return;
+    }
+
+    if (succeededGroupIds.length > 0) {
+      toast.success(`Saved for ${succeededGroupIds.length} group(s) — ${failedGroupIds.length} had conflicts`);
+    }
+
+    // Re-target the form to ONLY the groups that actually failed, so a
+    // retry can't recreate duplicates for groups that already succeeded —
+    // this is what was causing the "conflicts never end" loop.
+    setForm((current) => ({ ...current, selectedGroups: failedGroupIds }));
+    setConflicts([...new Set(collectedConflicts)]);
   };
 
   const handlePdf = async () => {
@@ -158,7 +202,11 @@ export default function Timetable() {
           <span className="card-title">
             Level {filterLevel} — {streamLabel} — {filterSem}
           </span>
-          <span style={{fontSize:12,color:'#94a3b8'}}>Click empty cell to add a slot</span>
+          {isAdmin ? (
+            <span style={{fontSize:12,color:'#94a3b8'}}>Click empty cell to add a slot</span>
+          ) : (
+            <span className="badge badge-green">Read only</span>
+          )}
         </div>
         {loading ? <div className="loading-center"><div className="spinner"/></div> : (
           <div className="tt-grid-wrap">
@@ -172,7 +220,7 @@ export default function Timetable() {
               <tbody>
                 {uniqueTimes.length === 0 && (
                   <tr><td colSpan={6} style={{textAlign:'center',color:'#94a3b8',padding:30}}>
-                    No time slots defined yet. Go to <strong>Time Slots</strong> to add them first.
+                    No time slots defined yet. {isAdmin && <>Go to <strong>Time Slots</strong> to add them first.</>}
                   </td></tr>
                 )}
                 {uniqueTimes.map(ts => (
@@ -182,20 +230,27 @@ export default function Timetable() {
                       const tsForDay = allTimeslots.find(t => t.day === day && t.start_time === ts.start_time);
                       const slot = tsForDay ? grid[day][tsForDay.start_time] : null;
                       return (
-                        <td key={day} onClick={() => !slot && tsForDay && openAdd(tsForDay.id, day)}>
+                        <td
+                          key={day}
+                          onClick={() => isAdmin && !slot && tsForDay && openAdd(tsForDay.id, day)}
+                        >
                           {slot ? (
-                            <div className="slot-cell">
+                            <div className="slot-cell" style={{ cursor: isAdmin ? 'pointer' : 'default' }}>
                               <div style={{fontWeight:600}}>{slot.course.code}</div>
                               <div style={{opacity:.85}}>{slot.venue.code}</div>
                               <div style={{opacity:.7,fontSize:10}}>{slot.lecturer.name.split(' ').pop()}</div>
-                              <button className="slot-del btn" style={{background:'transparent',padding:0,color:'#fff',fontSize:12}}
-                                onClick={e => deleteSlot(slot.id, e)}>
-                                <X size={12}/>
-                              </button>
+                              {isAdmin && (
+                                <button className="slot-del btn" style={{background:'transparent',padding:0,color:'#fff',fontSize:12}}
+                                  onClick={e => deleteSlot(slot.id, e)}>
+                                  <X size={12}/>
+                                </button>
+                              )}
                             </div>
                           ) : (
                             tsForDay
-                              ? <div className="empty-cell" title="Click to add"/>
+                              ? (isAdmin
+                                  ? <div className="empty-cell" title="Click to add"/>
+                                  : <span style={{color:'#e2e8f0',fontSize:11}}>—</span>)
                               : <span style={{color:'#e2e8f0',fontSize:11}}>—</span>
                           )}
                         </td>
@@ -209,8 +264,8 @@ export default function Timetable() {
         )}
       </div>
 
-      {/* Add slot modal */}
-      {showForm && (
+      {/* Add slot modal — Admin only, gated at both the trigger (openAdd) and here */}
+      {showForm && isAdmin && (
         <Modal title="Add Timetable Slot" onClose={() => setShowForm(false)}>
           {conflicts.length > 0 && (
             <div className="conflict-list">

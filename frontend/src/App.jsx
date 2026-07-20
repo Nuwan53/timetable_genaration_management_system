@@ -26,8 +26,7 @@ import AdminProfile from './pages/AdminProfile';
 
 const nav = [
   { to:'/',           label:'Dashboard',      icon:<LayoutDashboard size={16}/>, roles:['ADMIN','LECTURER','STUDENT'] },
-  { to:'/timetable',  label:'Timetable',      icon:<LayoutGrid size={16}/>,      roles:['ADMIN','LECTURER','STUDENT'] },
-  { to:'/courses',    label:'Courses',        icon:<BookOpen size={16}/>,        roles:['ADMIN'] },
+  { to:'/timetable', label:'Timetable', icon:<LayoutGrid size={16}/>, roles:['ADMIN','LECTURER','STUDENT'] },  { to:'/courses',    label:'Courses',        icon:<BookOpen size={16}/>,        roles:['ADMIN'] },
   { to:'/lecturers',  label:'Lecturers',      icon:<Users size={16}/>,           roles:['ADMIN'] },
   { to:'/students',   label:'Students',       icon:<GraduationCap size={16}/>,   roles:['ADMIN'] },
   { to:'/venues',     label:'Venues',         icon:<MapPin size={16}/>,          roles:['ADMIN'] },
@@ -127,7 +126,7 @@ function AppShell() {
             <Route path="/"           element={<HomePage/>}/>
             <Route path="/student"    element={<StudentDashboard/>}/>
             <Route path="/lecturer"   element={<LecturerDashboard/>}/>
-            <Route path="/timetable"  element={<Timetable/>}/>
+            <Route path="/timetable" element={<Timetable/>}/>            
             <Route path="/courses"    element={<ProtectedRoute allow={['ADMIN']}><Courses/></ProtectedRoute>}/>
             <Route path="/lecturers"  element={<ProtectedRoute allow={['ADMIN']}><Lecturers/></ProtectedRoute>}/>
             <Route path="/students"   element={<ProtectedRoute allow={['ADMIN']}><Students/></ProtectedRoute>}/>
