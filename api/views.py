@@ -132,7 +132,6 @@ def build_student_dashboard(profile, request, semester='S2-2026'):
 def auth_login(request):
     username = str(request.data.get('username', '')).strip()
     password = str(request.data.get('password', ''))
-    role = str(request.data.get('role', '')).upper().strip()
 
     user = authenticate(request, username=username, password=password)
     if not user:
@@ -140,14 +139,13 @@ def auth_login(request):
 
     profile = getattr(user, 'profile', None)
     actual_role = profile.role if profile else 'ADMIN'
-    if role and role != actual_role:
-        return Response({'detail': 'Role does not match this account'}, status=status.HTTP_400_BAD_REQUEST)
 
     refresh = RefreshToken.for_user(user)
 
     return Response({
         'token': str(refresh.access_token),
         'refresh': str(refresh),
+        'role': actual_role,
         'user': serialize_user(user, request=request),
     })
 
