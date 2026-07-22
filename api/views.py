@@ -655,6 +655,8 @@ class AdminLecturerCreateView(APIView):
             must_change_password=True
         )
 
+        send_credentials_email(name, email, lecturer_id, raw_password, 'Lecturer')
+
         return Response({
             'id': lecturer.id,
             'lecturer_id': lecturer_id,
@@ -727,6 +729,9 @@ class AdminStudentCreateView(APIView):
             contact_number=contact_number,
             must_change_password=True
         )
+
+        send_credentials_email(name, email, registration_number, raw_password, 'Student')   # ADD THIS LINE ONLY
+
 
         return Response({
             'id': user.id,
