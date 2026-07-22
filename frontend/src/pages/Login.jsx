@@ -58,7 +58,7 @@ export default function Login() {
             lecturer, and student access — always current, always in sync.
           </p>
           <div className="login-hero-stats">
-            <div><strong>3</strong><span>Roles</span></div>
+            {/* <div><strong>3</strong><span>Roles</span></div> */}
             <div><strong>24/7</strong><span>Access</span></div>
             <div><strong>Live</strong><span>Sync</span></div>
           </div>

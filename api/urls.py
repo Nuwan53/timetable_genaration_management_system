@@ -37,6 +37,8 @@ urlpatterns = [
     path('lecturer/schedule/', LecturerScheduleViewSet.as_view({'get': 'list'})),
     path('lecturer/requests/', LecturerRequestViewSet.as_view({'get': 'list', 'post': 'create'})),
     path('lecturer/requests/<int:pk>/', LecturerRequestViewSet.as_view({'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'})),
+    path('lecturer/requests/<int:pk>/approve/', LecturerRequestViewSet.as_view({'post': 'approve'})),
+    path('lecturer/requests/<int:pk>/reject/', LecturerRequestViewSet.as_view({'post': 'reject'})),
     path('lecturer/notifications/', LecturerNotificationViewSet.as_view({'get': 'list'})),
 ]
 

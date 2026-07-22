@@ -355,6 +355,9 @@ class LecturerRequestViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         profile = getattr(self.request.user, 'profile', None)
+        if profile and profile.role == 'ADMIN':
+            return LecturerRequest.objects.select_related('lecturer', 'schedule_slot', 'reviewed_by').all()
+
         lecturer = profile.lecturer if profile else None
         if lecturer is None:
             return LecturerRequest.objects.none()
@@ -363,7 +366,67 @@ class LecturerRequestViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         profile = getattr(self.request.user, 'profile', None)
         lecturer = profile.lecturer if profile else None
-        serializer.save(lecturer=lecturer)
+        instance = serializer.save(lecturer=lecturer)
+
+        # Handle Student Notification creation for Availability requests
+        request_type = self.request.data.get('request_type')
+        if request_type == 'AVAILABILITY':
+            student_group_ids = self.request.data.get('student_groups', [])
+            if student_group_ids:
+                lecturer_name = lecturer.name if lecturer else "A Lecturer"
+                date_str = instance.requested_date.strftime('%Y-%m-%d') if instance.requested_date else "N/A"
+                start_str = instance.requested_start.strftime('%H:%M') if instance.requested_start else "N/A"
+                end_str = instance.requested_end.strftime('%H:%M') if instance.requested_end else "N/A"
+                reason_str = instance.reason or "No reason supplied"
+
+                title = f"Lecturer Availability: {lecturer_name}"
+                message = f"Lecturer {lecturer_name} has indicated availability on {date_str} from {start_str} to {end_str}. Details: {reason_str}"
+
+                for group_id in student_group_ids:
+                    StudentNotification.objects.create(
+                        student_group_id=group_id,
+                        notification_type='GENERAL',
+                        title=title,
+                        message=message,
+                    )
+
+    @action(detail=True, methods=['post'], permission_classes=[IsAdminRole])
+    def approve(self, request, pk=None):
+        lecturer_request = self.get_object()
+        lecturer_request.status = 'APPROVED'
+        lecturer_request.reviewed_by = request.user
+        lecturer_request.reviewed_at = timezone.now()
+        lecturer_request.save()
+
+        # Create notification for lecturer
+        LecturerNotification.objects.create(
+            lecturer=lecturer_request.lecturer,
+            title="Request Approved",
+            message=f"Your {lecturer_request.request_type.lower()} request has been approved.",
+            notification_type='REQUEST',
+            schedule_slot=lecturer_request.schedule_slot
+        )
+
+        return Response({'status': 'approved'})
+
+    @action(detail=True, methods=['post'], permission_classes=[IsAdminRole])
+    def reject(self, request, pk=None):
+        lecturer_request = self.get_object()
+        lecturer_request.status = 'REJECTED'
+        lecturer_request.reviewed_by = request.user
+        lecturer_request.reviewed_at = timezone.now()
+        lecturer_request.save()
+
+        # Create notification for lecturer
+        LecturerNotification.objects.create(
+            lecturer=lecturer_request.lecturer,
+            title="Request Rejected",
+            message=f"Your {lecturer_request.request_type.lower()} request has been rejected.",
+            notification_type='REQUEST',
+            schedule_slot=lecturer_request.schedule_slot
+        )
+
+        return Response({'status': 'rejected'})
 
 
 class LecturerNotificationViewSet(viewsets.ReadOnlyModelViewSet):

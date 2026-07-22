@@ -40,6 +40,8 @@ export const lecturerApi = {
   requests: {
     list: () => api.get('/lecturer/requests/'),
     create: (data) => api.post('/lecturer/requests/', data),
+    approve: (id) => api.post(`/lecturer/requests/${id}/approve/`),
+    reject: (id) => api.post(`/lecturer/requests/${id}/reject/`),
   },
   notifications: () => api.get('/lecturer/notifications/'),
 };

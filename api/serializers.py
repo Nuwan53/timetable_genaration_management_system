@@ -365,6 +365,13 @@ class LecturerProfileSerializer(serializers.ModelSerializer):
 
 
 class LecturerRequestSerializer(serializers.ModelSerializer):
+    lecturer_name = serializers.ReadOnlyField(source='lecturer.name')
+    course_code = serializers.ReadOnlyField(source='schedule_slot.course.code')
+    slot_day = serializers.ReadOnlyField(source='schedule_slot.timeslot.day')
+    slot_start = serializers.ReadOnlyField(source='schedule_slot.timeslot.start_time')
+    slot_end = serializers.ReadOnlyField(source='schedule_slot.timeslot.end_time')
+    old_room = serializers.ReadOnlyField(source='schedule_slot.venue.code')
+
     class Meta:
         model = LecturerRequest
         fields = '__all__'

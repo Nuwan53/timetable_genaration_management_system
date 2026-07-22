@@ -4,7 +4,7 @@ import {
   Bell, CalendarDays, Clock3, Filter, MapPin, MessageSquarePlus,
   ShieldAlert, UserRoundPen, CheckCircle2, LayoutGrid, ListChecks,
 } from 'lucide-react';
-import { lecturerApi } from '../api';
+import { lecturerApi, groups } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { useSearchParams } from 'react-router-dom';
 
@@ -32,25 +32,28 @@ export default function LecturerDashboard() {
   const [requests, setRequests] = useState([]);
   const [profile, setProfile] = useState({ name: '', email: '', department: '' });
   const [filters, setFilters] = useState({ day: '', subject: '', room: '' });
-  const [availabilityForm, setAvailabilityForm] = useState({ requested_date: '', requested_start: '', requested_end: '', reason: '' });
-  const [changeForm, setChangeForm] = useState({ schedule_slot: '', requested_room: '', requested_start: '', requested_end: '', reason: '' });
+  const [studentGroups, setStudentGroups] = useState([]);
+  const [availabilityForm, setAvailabilityForm] = useState({ request_sub_type: 'availability', requested_date: '', requested_start: '', requested_end: '', reason: '', selected_groups: [] });
+  const [changeForm, setChangeForm] = useState({ schedule_slot: '', requested_room: '', requested_day: '', requested_start: '', requested_end: '', reason: '' });
   const [loading, setLoading] = useState(true);
 
   const loadData = async () => {
     if (!user?.lecturer_id) return;
     setLoading(true);
     try {
-      const [scheduleRes, notificationsRes, requestsRes, profileRes] = await Promise.all([
+      const [scheduleRes, notificationsRes, requestsRes, profileRes, groupsRes] = await Promise.all([
         lecturerApi.schedule({ semester: 'S2-2026' }),
         lecturerApi.notifications(),
         lecturerApi.requests.list(),
         lecturerApi.me(),
+        groups.list(),
       ]);
 
       setItems(scheduleRes.data);
       setNotifications(notificationsRes.data);
       setRequests(requestsRes.data);
       setProfile(profileRes.data);
+      setStudentGroups(groupsRes.data);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to load lecturer dashboard');
     } finally {
@@ -131,13 +134,33 @@ export default function LecturerDashboard() {
   const submitAvailability = async (event) => {
     event.preventDefault();
 
+    if (!availabilityForm.requested_date || !availabilityForm.requested_start || !availabilityForm.requested_end) {
+      toast.error('Please enter date, start time, and end time');
+      return;
+    }
+
+    if (availabilityForm.request_sub_type === 'availability' && availabilityForm.selected_groups.length === 0) {
+      toast.error('Please select at least one student group');
+      return;
+    }
+
     try {
-      await lecturerApi.requests.create({
+      const payload = {
         request_type: 'AVAILABILITY',
-        ...availabilityForm,
-      });
-      toast.success('Availability request sent');
-      setAvailabilityForm({ requested_date: '', requested_start: '', requested_end: '', reason: '' });
+        requested_date: availabilityForm.requested_date,
+        requested_start: availabilityForm.requested_start,
+        requested_end: availabilityForm.requested_end,
+        reason: availabilityForm.request_sub_type === 'leave'
+          ? `[Leave Request] ${availabilityForm.reason}`
+          : availabilityForm.reason,
+        student_groups: availabilityForm.request_sub_type === 'availability'
+          ? availabilityForm.selected_groups
+          : [],
+      };
+
+      await lecturerApi.requests.create(payload);
+      toast.success(`${availabilityForm.request_sub_type === 'leave' ? 'Leave' : 'Availability'} request sent`);
+      setAvailabilityForm({ request_sub_type: 'availability', requested_date: '', requested_start: '', requested_end: '', reason: '', selected_groups: [] });
       loadData();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Could not submit availability request');
@@ -147,13 +170,26 @@ export default function LecturerDashboard() {
   const submitChangeRequest = async (event) => {
     event.preventDefault();
 
+    if (!changeForm.schedule_slot) {
+      toast.error('Please select one of your classes');
+      return;
+    }
+
     try {
-      await lecturerApi.requests.create({
+      const payload = {
         request_type: 'CHANGE',
-        ...changeForm,
-      });
+        schedule_slot: changeForm.schedule_slot,
+        requested_room: changeForm.requested_room,
+        requested_start: changeForm.requested_start || null,
+        requested_end: changeForm.requested_end || null,
+        reason: changeForm.requested_day
+          ? `[Preferred Day: ${changeForm.requested_day}] ${changeForm.reason}`
+          : changeForm.reason,
+      };
+
+      await lecturerApi.requests.create(payload);
       toast.success('Change request sent');
-      setChangeForm({ schedule_slot: '', requested_room: '', requested_start: '', requested_end: '', reason: '' });
+      setChangeForm({ schedule_slot: '', requested_room: '', requested_day: '', requested_start: '', requested_end: '', reason: '' });
       loadData();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Could not submit change request');
@@ -334,6 +370,72 @@ export default function LecturerDashboard() {
               <MessageSquarePlus size={16} />
             </div>
             <form onSubmit={submitAvailability} className="form-row">
+              <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                <label>Request Type</label>
+                <div style={{ display: 'flex', gap: 20, marginTop: 5 }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontWeight: 'normal' }}>
+                    <input
+                      type="radio"
+                      name="request_sub_type"
+                      value="availability"
+                      checked={availabilityForm.request_sub_type === 'availability'}
+                      onChange={(e) => setAvailabilityForm((current) => ({ ...current, request_sub_type: e.target.value }))}
+                    />
+                    Availability Request
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontWeight: 'normal' }}>
+                    <input
+                      type="radio"
+                      name="request_sub_type"
+                      value="leave"
+                      checked={availabilityForm.request_sub_type === 'leave'}
+                      onChange={(e) => setAvailabilityForm((current) => ({ ...current, request_sub_type: e.target.value }))}
+                    />
+                    Leave Request
+                  </label>
+                </div>
+              </div>
+
+              {availabilityForm.request_sub_type === 'availability' && (
+                <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                  <label>Target Student Group(s)</label>
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+                    gap: 10,
+                    marginTop: 8,
+                    padding: '10px 15px',
+                    background: '#f8fafc',
+                    borderRadius: 6,
+                    border: '1px solid #e2e8f0',
+                    maxHeight: 150,
+                    overflowY: 'auto'
+                  }}>
+                    {studentGroups.map((group) => {
+                      const label = `Level ${group.level} — ${group.stream}${group.subgroup ? ` (${group.subgroup})` : ''}`;
+                      const isChecked = availabilityForm.selected_groups.includes(group.id);
+                      return (
+                        <label key={group.id} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, fontWeight: 'normal' }}>
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => {
+                              setAvailabilityForm((current) => {
+                                const groups = current.selected_groups.includes(group.id)
+                                  ? current.selected_groups.filter((id) => id !== group.id)
+                                  : [...current.selected_groups, group.id];
+                                return { ...current, selected_groups: groups };
+                              });
+                            }}
+                          />
+                          {label}
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               <div className="form-group">
                 <label>Date</label>
                 <input type="date" value={availabilityForm.requested_date} onChange={(event) => setAvailabilityForm((current) => ({ ...current, requested_date: event.target.value }))} />
@@ -351,43 +453,52 @@ export default function LecturerDashboard() {
                 <textarea rows={4} value={availabilityForm.reason} onChange={(event) => setAvailabilityForm((current) => ({ ...current, reason: event.target.value }))} />
               </div>
               <div className="modal-footer" style={{ gridColumn: '1 / -1' }}>
-                <button className="btn btn-primary" type="submit">Submit Availability Request</button>
+                <button className="btn btn-primary" type="submit">
+                  Submit {availabilityForm.request_sub_type === 'leave' ? 'Leave' : 'Availability'} Request
+                </button>
               </div>
             </form>
           </div>
 
           <div className="card">
             <div className="card-header">
-              <span className="card-title">Change Request</span>
-              <UserRoundPen size={16} />
+               <span className="card-title">Change Request</span>
+               <UserRoundPen size={16} />
             </div>
             <form onSubmit={submitChangeRequest} className="form-row">
-              <div className="form-group">
-                <label>Class</label>
-                <select value={changeForm.schedule_slot} onChange={(event) => setChangeForm((current) => ({ ...current, schedule_slot: event.target.value }))}>
-                  <option value="">Select one of your classes</option>
-                  {items.map((slot) => <option key={slot.id} value={slot.id}>{slot.course.code} · {slot.timeslot.day} {slot.timeslot.start_time.slice(0, 5)}</option>)}
-                </select>
-              </div>
-              <div className="form-group">
-                <label>Requested Room</label>
-                <input value={changeForm.requested_room} onChange={(event) => setChangeForm((current) => ({ ...current, requested_room: event.target.value }))} />
-              </div>
-              <div className="form-group">
-                <label>Requested Start</label>
-                <input type="time" value={changeForm.requested_start} onChange={(event) => setChangeForm((current) => ({ ...current, requested_start: event.target.value }))} />
-              </div>
-              <div className="form-group">
-                <label>Requested End</label>
-                <input type="time" value={changeForm.requested_end} onChange={(event) => setChangeForm((current) => ({ ...current, requested_end: event.target.value }))} />
-              </div>
-              <div className="form-group">
-                <label>Reason</label>
-                <textarea rows={4} value={changeForm.reason} onChange={(event) => setChangeForm((current) => ({ ...current, reason: event.target.value }))} />
-              </div>
-              <div className="modal-footer" style={{ gridColumn: '1 / -1' }}>
-                <button className="btn btn-primary" type="submit">Submit Change Request</button>
-              </div>
+               <div className="form-group">
+                 <label>Class</label>
+                 <select value={changeForm.schedule_slot} onChange={(event) => setChangeForm((current) => ({ ...current, schedule_slot: event.target.value }))}>
+                   <option value="">Select one of your classes</option>
+                   {items.map((slot) => <option key={slot.id} value={slot.id}>{slot.course.code} · {slot.timeslot.day} {slot.timeslot.start_time.slice(0, 5)}</option>)}
+                 </select>
+               </div>
+               <div className="form-group">
+                 <label>Requested Room</label>
+                 <input value={changeForm.requested_room} onChange={(event) => setChangeForm((current) => ({ ...current, requested_room: event.target.value }))} />
+               </div>
+               <div className="form-group">
+                 <label>Preferred Day (Optional)</label>
+                 <select value={changeForm.requested_day} onChange={(event) => setChangeForm((current) => ({ ...current, requested_day: event.target.value }))}>
+                   <option value="">Select preferred day</option>
+                   {DAYS.map((day) => <option key={day} value={day}>{day}</option>)}
+                 </select>
+               </div>
+               <div className="form-group">
+                 <label>Requested Start</label>
+                 <input type="time" value={changeForm.requested_start} onChange={(event) => setChangeForm((current) => ({ ...current, requested_start: event.target.value }))} />
+               </div>
+               <div className="form-group">
+                 <label>Requested End</label>
+                 <input type="time" value={changeForm.requested_end} onChange={(event) => setChangeForm((current) => ({ ...current, requested_end: event.target.value }))} />
+               </div>
+               <div className="form-group">
+                 <label>Reason</label>
+                 <textarea rows={4} value={changeForm.reason} onChange={(event) => setChangeForm((current) => ({ ...current, reason: event.target.value }))} />
+               </div>
+               <div className="modal-footer" style={{ gridColumn: '1 / -1' }}>
+                 <button className="btn btn-primary" type="submit">Submit Change Request</button>
+               </div>
             </form>
           </div>
 
