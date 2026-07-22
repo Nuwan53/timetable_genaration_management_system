@@ -169,6 +169,7 @@ export default function AdminAnalytics() {
                         <th>Booked Slots</th>
                         <th>Total Slots</th>
                         <th>Utilization</th>
+                        
                       </tr>
                     </thead>
                     <tbody>
