@@ -9,10 +9,10 @@ api.interceptors.request.use((config) => {
 });
 
 export const courses   = { list: () => api.get('/courses/'), create: d => api.post('/courses/', d), update: (id,d) => api.put(`/courses/${id}/`, d), remove: id => api.delete(`/courses/${id}/`) };
-export const lecturers = { list: () => api.get('/lecturers/'), create: d => api.post('/lecturers/', d), update: (id,d) => api.put(`/lecturers/${id}/`, d), remove: id => api.delete(`/lecturers/${id}/`) };
+export const lecturers = { list: () => api.get('/lecturers/'), create: d => api.post('/admin/lecturers/', d), update: (id,d) => api.put(`/lecturers/${id}/`, d), remove: id => api.delete(`/lecturers/${id}/`) };
 export const students = {
   list: () => api.get('/students/'),
-  create: (d) => api.post('/students/', d),
+  create: (d) => api.post('/admin/students/', d),
   update: (id, d) => {
     const payload = { ...d };
     if (!payload.password) {
@@ -40,6 +40,8 @@ export const lecturerApi = {
   requests: {
     list: () => api.get('/lecturer/requests/'),
     create: (data) => api.post('/lecturer/requests/', data),
+    approve: (id) => api.post(`/lecturer/requests/${id}/approve/`),
+    reject: (id) => api.post(`/lecturer/requests/${id}/reject/`),
   },
   notifications: () => api.get('/lecturer/notifications/'),
 };
@@ -50,4 +52,8 @@ export const studentApi = {
     me: () => api.get('/student/profile/'),
     updateMe: (data) => api.patch('/student/profile/', data),
   },
+};
+
+export const auth = {
+  changePassword: (data) => api.post('/auth/change-password/', data),
 };

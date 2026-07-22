@@ -4,15 +4,16 @@ from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from django.http import HttpResponse
 from django.db.models import Q
+from django.db import transaction
 from django.utils import timezone
 from rest_framework import viewsets, status
-from rest_framework.permissions import AllowAny, BasePermission
-from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.permissions import AllowAny, BasePermission, IsAuthenticated
+from rest_framework.decorators import action, api_view, permission_classes, authentication_classes
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
-from .models import Course, Lecturer, Venue, StudentGroup, TimeSlot, ScheduleSlot, LecturerRequest, LecturerNotification, Announcement, StudentNotification
+from .models import Course, Lecturer, Venue, StudentGroup, TimeSlot, ScheduleSlot, LecturerRequest, LecturerNotification, Announcement, StudentNotification, UserProfile
 from .serializers import (
     CourseSerializer, LecturerSerializer, VenueSerializer,
     StudentGroupSerializer, TimeSlotSerializer,
@@ -29,7 +30,12 @@ from reportlab.lib import colors
 from reportlab.lib.units import cm
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from collections import Counter
+from .emails import send_class_change_email
 import io
+import csv
+from .emails import send_credentials_email
+from .scheduler import generate_timetable_for_group
 
 DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
 TIMES = ['08:00', '09:00', '10:00', '11:00', '12:00', '13:00',
@@ -121,11 +127,11 @@ def build_student_dashboard(profile, request, semester='S2-2026'):
 
 
 @api_view(['POST'])
+@authentication_classes([]) 
 @permission_classes([AllowAny])
 def auth_login(request):
     username = str(request.data.get('username', '')).strip()
     password = str(request.data.get('password', ''))
-    role = str(request.data.get('role', '')).upper().strip()
 
     user = authenticate(request, username=username, password=password)
     if not user:
@@ -133,14 +139,13 @@ def auth_login(request):
 
     profile = getattr(user, 'profile', None)
     actual_role = profile.role if profile else 'ADMIN'
-    if role and role != actual_role:
-        return Response({'detail': 'Role does not match this account'}, status=status.HTTP_400_BAD_REQUEST)
 
     refresh = RefreshToken.for_user(user)
 
     return Response({
         'token': str(refresh.access_token),
         'refresh': str(refresh),
+        'role': actual_role,
         'user': serialize_user(user, request=request),
     })
 
@@ -227,6 +232,113 @@ class ScheduleSlotViewSet(viewsets.ModelViewSet):
         return qs
 
 
+  # Add this import near the top of views.py, alongside your other imports:
+
+
+
+# --- Inside ScheduleSlotViewSet, add these two methods ---
+# (keep your existing get_serializer_class and get_queryset as they are)
+
+    def perform_update(self, serializer):
+        instance = self.get_object()
+        old_timeslot_id = instance.timeslot_id
+        old_venue_id = instance.venue_id
+
+        updated = serializer.save()
+
+        timeslot_changed = updated.timeslot_id != old_timeslot_id
+        venue_changed = updated.venue_id != old_venue_id
+
+        if not (timeslot_changed or venue_changed):
+            return  # nothing schedule-relevant changed, skip notifications
+
+        # StudentNotification has RESCHEDULE / ROOM_CHANGE as separate types
+        student_notif_type = 'ROOM_CHANGE' if (venue_changed and not timeslot_changed) else 'RESCHEDULE'
+        # LecturerNotification only has a single generic "CHANGE" type — no RESCHEDULE/ROOM_CHANGE choice
+        lecturer_notif_type = 'CHANGE'
+
+        title = f"Schedule Updated: {updated.course.code}"
+        message = (
+            f"Your class has changed to {updated.timeslot.day} "
+            f"{updated.timeslot.start_time.strftime('%H:%M')}-{updated.timeslot.end_time.strftime('%H:%M')} "
+            f"at {updated.venue.code}."
+        )
+
+        LecturerNotification.objects.create(
+            lecturer=updated.lecturer,
+            schedule_slot=updated,
+            title=title,
+            message=message,
+            notification_type=lecturer_notif_type,
+        )
+        StudentNotification.objects.create(
+            student_group=updated.group,
+            schedule_slot=updated,
+            title=title,
+            message=message,
+            notification_type=student_notif_type,
+        )
+
+        student_emails = (
+            User.objects
+            .filter(profile__role='STUDENT', profile__student_group=updated.group)
+            .exclude(email='')
+            .values_list('email', flat=True)
+        )
+
+        send_class_change_email(
+            notification_type=student_notif_type,
+            course_code=updated.course.code,
+            venue_code=updated.venue.code,
+            day=updated.timeslot.day,
+            start_time=updated.timeslot.start_time.strftime('%H:%M'),
+            end_time=updated.timeslot.end_time.strftime('%H:%M'),
+            lecturer_email=updated.lecturer.email,
+            student_emails=student_emails,
+        )
+
+    def perform_destroy(self, instance):
+        # 'CANCEL' is a valid choice on BOTH models — no mapping needed here
+        title = f"Cancelled: {instance.course.code}"
+        message = (
+            f"Your class on {instance.timeslot.day} "
+            f"{instance.timeslot.start_time.strftime('%H:%M')} at {instance.venue.code} "
+            f"has been cancelled."
+        )
+
+        LecturerNotification.objects.create(
+            lecturer=instance.lecturer,
+            title=title,
+            message=message,
+            notification_type='CANCEL',
+        )
+        StudentNotification.objects.create(
+            student_group=instance.group,
+            title=title,
+            message=message,
+            notification_type='CANCEL',
+        )
+
+        student_emails = (
+            User.objects
+            .filter(profile__role='STUDENT', profile__student_group=instance.group)
+            .exclude(email='')
+            .values_list('email', flat=True)
+        )
+
+        send_class_change_email(
+            notification_type='CANCEL',
+            course_code=instance.course.code,
+            venue_code=instance.venue.code,
+            day=instance.timeslot.day,
+            start_time=instance.timeslot.start_time.strftime('%H:%M'),
+            end_time=instance.timeslot.end_time.strftime('%H:%M'),
+            lecturer_email=instance.lecturer.email,
+            student_emails=student_emails,
+        )
+
+        instance.delete()
+
 class LecturerScheduleViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = ScheduleSlotReadSerializer
 
@@ -243,6 +355,9 @@ class LecturerRequestViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         profile = getattr(self.request.user, 'profile', None)
+        if profile and profile.role == 'ADMIN':
+            return LecturerRequest.objects.select_related('lecturer', 'schedule_slot', 'reviewed_by').all()
+
         lecturer = profile.lecturer if profile else None
         if lecturer is None:
             return LecturerRequest.objects.none()
@@ -251,7 +366,67 @@ class LecturerRequestViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         profile = getattr(self.request.user, 'profile', None)
         lecturer = profile.lecturer if profile else None
-        serializer.save(lecturer=lecturer)
+        instance = serializer.save(lecturer=lecturer)
+
+        # Handle Student Notification creation for Availability requests
+        request_type = self.request.data.get('request_type')
+        if request_type == 'AVAILABILITY':
+            student_group_ids = self.request.data.get('student_groups', [])
+            if student_group_ids:
+                lecturer_name = lecturer.name if lecturer else "A Lecturer"
+                date_str = instance.requested_date.strftime('%Y-%m-%d') if instance.requested_date else "N/A"
+                start_str = instance.requested_start.strftime('%H:%M') if instance.requested_start else "N/A"
+                end_str = instance.requested_end.strftime('%H:%M') if instance.requested_end else "N/A"
+                reason_str = instance.reason or "No reason supplied"
+
+                title = f"Lecturer Availability: {lecturer_name}"
+                message = f"Lecturer {lecturer_name} has indicated availability on {date_str} from {start_str} to {end_str}. Details: {reason_str}"
+
+                for group_id in student_group_ids:
+                    StudentNotification.objects.create(
+                        student_group_id=group_id,
+                        notification_type='GENERAL',
+                        title=title,
+                        message=message,
+                    )
+
+    @action(detail=True, methods=['post'], permission_classes=[IsAdminRole])
+    def approve(self, request, pk=None):
+        lecturer_request = self.get_object()
+        lecturer_request.status = 'APPROVED'
+        lecturer_request.reviewed_by = request.user
+        lecturer_request.reviewed_at = timezone.now()
+        lecturer_request.save()
+
+        # Create notification for lecturer
+        LecturerNotification.objects.create(
+            lecturer=lecturer_request.lecturer,
+            title="Request Approved",
+            message=f"Your {lecturer_request.request_type.lower()} request has been approved.",
+            notification_type='REQUEST',
+            schedule_slot=lecturer_request.schedule_slot
+        )
+
+        return Response({'status': 'approved'})
+
+    @action(detail=True, methods=['post'], permission_classes=[IsAdminRole])
+    def reject(self, request, pk=None):
+        lecturer_request = self.get_object()
+        lecturer_request.status = 'REJECTED'
+        lecturer_request.reviewed_by = request.user
+        lecturer_request.reviewed_at = timezone.now()
+        lecturer_request.save()
+
+        # Create notification for lecturer
+        LecturerNotification.objects.create(
+            lecturer=lecturer_request.lecturer,
+            title="Request Rejected",
+            message=f"Your {lecturer_request.request_type.lower()} request has been rejected.",
+            notification_type='REQUEST',
+            schedule_slot=lecturer_request.schedule_slot
+        )
+
+        return Response({'status': 'rejected'})
 
 
 class LecturerNotificationViewSet(viewsets.ReadOnlyModelViewSet):
@@ -386,3 +561,768 @@ class StudentProfileView(APIView):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(StudentProfileSerializer(profile, context={'request': request}).data)
+
+
+def generate_lecturer_id():
+    import datetime
+    year = datetime.datetime.now().year
+    prefix = f"LEC-{year}-"
+    # Find all lecturers whose lecturer_id starts with prefix
+    lecturers_list = Lecturer.objects.filter(lecturer_id__startswith=prefix)
+    max_num = 0
+    for lec in lecturers_list:
+        if lec.lecturer_id:
+            try:
+                parts = lec.lecturer_id.split('-')
+                if len(parts) == 3:
+                    num = int(parts[2])
+                    if num > max_num:
+                        max_num = num
+            except (ValueError, IndexError):
+                pass
+    return f"{prefix}{max_num + 1:03d}"
+
+
+def generate_random_password():
+    import secrets
+    chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*"
+    return "".join(secrets.choice(chars) for _ in range(10))
+
+
+class AdminLecturerCreateView(APIView):
+    permission_classes = [IsAdminRole]
+
+    @transaction.atomic
+    def post(self, request):
+        from django.db import transaction
+        from .models import UserProfile
+        name = request.data.get('name', '').strip()
+        email = request.data.get('email', '').strip()
+        department = request.data.get('department', '').strip()
+        lecturer_id = request.data.get('lecturer_id', '').strip()
+        password = request.data.get('password', '').strip()
+
+        if not name or not email:
+            return Response({'detail': 'Name and Email are required fields.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Check unique email
+        if Lecturer.objects.filter(email=email).exists():
+            return Response({'detail': 'Lecturer with this email already exists.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Handle lecturer ID
+        if not lecturer_id:
+            lecturer_id = generate_lecturer_id()
+        elif Lecturer.objects.filter(lecturer_id=lecturer_id).exists():
+            return Response({'detail': 'Lecturer ID must be unique.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Handle password
+        raw_password = password
+        if not raw_password:
+            raw_password = generate_random_password()
+
+        # Create Lecturer
+        lecturer = Lecturer.objects.create(
+            lecturer_id=lecturer_id,
+            name=name,
+            email=email,
+            department=department,
+            must_change_password=True
+        )
+
+        # Create User
+        parts = [part for part in name.split() if part]
+        first_name = parts[0] if parts else ''
+        last_name = ' '.join(parts[1:]) if len(parts) > 1 else ''
+
+        if User.objects.filter(username=lecturer_id).exists():
+            transaction.set_rollback(True)
+            return Response({'detail': f'A user with username {lecturer_id} already exists.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        user = User.objects.create(
+            username=lecturer_id,
+            email=email,
+            first_name=first_name,
+            last_name=last_name
+        )
+        user.set_password(raw_password)
+        user.save()
+
+        # Create UserProfile
+        UserProfile.objects.create(
+            user=user,
+            role='LECTURER',
+            lecturer=lecturer,
+            must_change_password=True
+        )
+
+        send_credentials_email(name, email, lecturer_id, raw_password, 'Lecturer')
+
+        return Response({
+            'id': lecturer.id,
+            'lecturer_id': lecturer_id,
+            'name': name,
+            'email': email,
+            'department': department,
+            'username': lecturer_id,
+            'password': raw_password,
+            'must_change_password': True
+        }, status=status.HTTP_201_CREATED)
+
+
+class AdminStudentCreateView(APIView):
+    permission_classes = [IsAdminRole]
+
+    @transaction.atomic
+    def post(self, request):
+        from django.db import transaction
+        from .models import UserProfile
+        registration_number = request.data.get('registration_number', '').strip()
+        name = request.data.get('name', '').strip()
+        email = request.data.get('email', '').strip()
+        student_group_id = request.data.get('student_group_id')
+        contact_number = request.data.get('contact_number', '').strip()
+        password = request.data.get('password', '').strip()
+
+        if not registration_number or not name:
+            return Response({'detail': 'Registration Number and Name are required fields.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Check unique username/reg_number
+        if User.objects.filter(username=registration_number).exists():
+            return Response({'detail': 'A student account with this registration number/username already exists.'}, status=status.HTTP_400_BAD_REQUEST)
+        if UserProfile.objects.filter(registration_number=registration_number).exists():
+            return Response({'detail': 'Registration number is already in use.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Get group
+        student_group = None
+        if not student_group_id:
+            return Response({'detail': 'Student Group is required — it determines which subjects the student is enrolled in.'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            student_group = StudentGroup.objects.get(pk=student_group_id)
+        except StudentGroup.DoesNotExist:
+            return Response({'detail': 'Invalid Student Group selected.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Handle password
+        raw_password = password
+        if not raw_password:
+            raw_password = generate_random_password()
+
+        # Create User
+        parts = [part for part in name.split() if part]
+        first_name = parts[0] if parts else ''
+        last_name = ' '.join(parts[1:]) if len(parts) > 1 else ''
+
+        user = User.objects.create(
+            username=registration_number,
+            email=email,
+            first_name=first_name,
+            last_name=last_name
+        )
+        user.set_password(raw_password)
+        user.save()
+
+        # Create UserProfile
+        UserProfile.objects.create(
+            user=user,
+            role='STUDENT',
+            student_group=student_group,
+            registration_number=registration_number,
+            contact_number=contact_number,
+            must_change_password=True
+        )
+
+        send_credentials_email(name, email, registration_number, raw_password, 'Student')   # ADD THIS LINE ONLY
+
+
+        return Response({
+            'id': user.id,
+            'username': registration_number,
+            'registration_number': registration_number,
+            'name': name,
+            'email': email,
+            'student_group_id': student_group_id,
+            'contact_number': contact_number,
+            'password': raw_password,
+            'must_change_password': True
+        }, status=status.HTTP_201_CREATED)
+
+
+# Add these imports near the top of views.py, alongside your other imports:
+
+
+
+class AdminBulkStudentUploadView(APIView):
+    """
+    POST /api/admin/students/bulk-upload/
+    Accepts a CSV file (field name: 'file') with columns:
+    name, registration_number, email, level, stream, year, subgroup (optional), contact_number (optional)
+
+    Creates one account per row, generates a random password for each,
+    and emails that person their own credentials. One bad row does not
+    affect any other row — each row commits or fails independently.
+    """
+    permission_classes = [IsAdminRole]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request):
+        file = request.FILES.get('file')
+        if not file:
+            return Response({'detail': 'CSV file is required (field name: file).'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            decoded = file.read().decode('utf-8-sig')
+        except UnicodeDecodeError:
+            return Response({'detail': 'Could not read file. Please upload a UTF-8 encoded CSV.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        reader = csv.DictReader(io.StringIO(decoded))
+        required_columns = {'name', 'registration_number', 'email', 'level', 'stream', 'year'}
+        available_columns = set(reader.fieldnames or [])
+
+        if not required_columns.issubset(available_columns):
+            missing = required_columns - available_columns
+            return Response(
+                {'detail': f'CSV is missing required columns: {", ".join(sorted(missing))}'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        results = []
+
+        for idx, row in enumerate(reader, start=2):  # row 1 is the header
+            name = (row.get('name') or '').strip()
+            registration_number = (row.get('registration_number') or '').strip()
+            email = (row.get('email') or '').strip()
+            level = (row.get('level') or '').strip()
+            stream = (row.get('stream') or '').strip()
+            subgroup = (row.get('subgroup') or '').strip()
+            year = (row.get('year') or '').strip()
+            contact_number = (row.get('contact_number') or '').strip()
+
+            try:
+                with transaction.atomic():
+                    if not name or not registration_number or not email:
+                        raise ValueError('name, registration_number, and email are required.')
+
+                    if User.objects.filter(username=registration_number).exists():
+                        raise ValueError('Registration number already in use.')
+                    if UserProfile.objects.filter(registration_number=registration_number).exists():
+                        raise ValueError('Registration number already in use.')
+
+                    try:
+                        student_group = StudentGroup.objects.get(
+                            level=level, stream=stream, subgroup=subgroup, year=year
+                        )
+                    except StudentGroup.DoesNotExist:
+                        raise ValueError(
+                            f'No matching student group for level={level}, stream={stream}, '
+                            f'subgroup="{subgroup}", year={year}.'
+                        )
+
+                    raw_password = generate_random_password()
+                    parts = [p for p in name.split() if p]
+                    first_name = parts[0] if parts else ''
+                    last_name = ' '.join(parts[1:]) if len(parts) > 1 else ''
+
+                    user = User.objects.create(
+                        username=registration_number, email=email,
+                        first_name=first_name, last_name=last_name,
+                    )
+                    user.set_password(raw_password)
+                    user.save()
+
+                    UserProfile.objects.create(
+                        user=user, role='STUDENT', student_group=student_group,
+                        registration_number=registration_number, contact_number=contact_number,
+                        must_change_password=True,
+                    )
+
+                send_credentials_email(name, email, registration_number, raw_password, 'Student')
+                results.append({
+                    'row': idx, 'status': 'success', 'name': name,
+                    'registration_number': registration_number, 'email': email,
+                })
+            except Exception as exc:
+                results.append({
+                    'row': idx, 'status': 'error', 'name': name,
+                    'registration_number': registration_number, 'detail': str(exc),
+                })
+
+        success_count = sum(1 for r in results if r['status'] == 'success')
+        return Response({
+            'total': len(results),
+            'success_count': success_count,
+            'failed_count': len(results) - success_count,
+            'results': results,
+        }, status=status.HTTP_201_CREATED)
+
+
+class AdminBulkLecturerUploadView(APIView):
+    """
+    POST /api/admin/lecturers/bulk-upload/
+    Accepts a CSV file (field name: 'file') with columns:
+    name, email, department (optional), lecturer_id (optional — auto-generated if blank)
+    """
+    permission_classes = [IsAdminRole]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request):
+        file = request.FILES.get('file')
+        if not file:
+            return Response({'detail': 'CSV file is required (field name: file).'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            decoded = file.read().decode('utf-8-sig')
+        except UnicodeDecodeError:
+            return Response({'detail': 'Could not read file. Please upload a UTF-8 encoded CSV.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        reader = csv.DictReader(io.StringIO(decoded))
+        required_columns = {'name', 'email'}
+        available_columns = set(reader.fieldnames or [])
+
+        if not required_columns.issubset(available_columns):
+            missing = required_columns - available_columns
+            return Response(
+                {'detail': f'CSV is missing required columns: {", ".join(sorted(missing))}'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        results = []
+
+        for idx, row in enumerate(reader, start=2):
+            name = (row.get('name') or '').strip()
+            email = (row.get('email') or '').strip()
+            department = (row.get('department') or '').strip()
+            lecturer_id = (row.get('lecturer_id') or '').strip()
+
+            try:
+                with transaction.atomic():
+                    if not name or not email:
+                        raise ValueError('name and email are required.')
+
+                    if Lecturer.objects.filter(email=email).exists():
+                        raise ValueError('Lecturer with this email already exists.')
+
+                    if not lecturer_id:
+                        lecturer_id = generate_lecturer_id()
+                    elif Lecturer.objects.filter(lecturer_id=lecturer_id).exists():
+                        raise ValueError('Lecturer ID must be unique.')
+
+                    if User.objects.filter(username=lecturer_id).exists():
+                        raise ValueError(f'A user with username {lecturer_id} already exists.')
+
+                    raw_password = generate_random_password()
+
+                    lecturer = Lecturer.objects.create(
+                        lecturer_id=lecturer_id, name=name, email=email,
+                        department=department, must_change_password=True,
+                    )
+
+                    parts = [p for p in name.split() if p]
+                    first_name = parts[0] if parts else ''
+                    last_name = ' '.join(parts[1:]) if len(parts) > 1 else ''
+
+                    user = User.objects.create(
+                        username=lecturer_id, email=email,
+                        first_name=first_name, last_name=last_name,
+                    )
+                    user.set_password(raw_password)
+                    user.save()
+
+                    UserProfile.objects.create(
+                        user=user, role='LECTURER', lecturer=lecturer, must_change_password=True,
+                    )
+
+                send_credentials_email(name, email, lecturer_id, raw_password, 'Lecturer')
+                results.append({
+                    'row': idx, 'status': 'success', 'name': name,
+                    'lecturer_id': lecturer_id, 'email': email,
+                })
+            except Exception as exc:
+                results.append({
+                    'row': idx, 'status': 'error', 'name': name,
+                    'lecturer_id': lecturer_id, 'detail': str(exc),
+                })
+
+        success_count = sum(1 for r in results if r['status'] == 'success')
+        return Response({
+            'total': len(results),
+            'success_count': success_count,
+            'failed_count': len(results) - success_count,
+            'results': results,
+        }, status=status.HTTP_201_CREATED)
+
+class AdminFreeSlotsView(APIView):
+    """
+    GET /api/admin/analytics/free-slots/?type=venue&id=<id>&semester=<semester>
+    GET /api/admin/analytics/free-slots/?type=lecturer&id=<id>&semester=<semester>
+
+    Returns every TimeSlot in the system, each tagged with is_free:
+    True  -> no ScheduleSlot exists for the given venue/lecturer at that time
+    False -> that venue/lecturer is already booked at that time
+    """
+    permission_classes = [IsAdminRole]
+
+    def get(self, request):
+        target_type = request.query_params.get('type', 'venue').strip().lower()
+        target_id = request.query_params.get('id')
+        semester = request.query_params.get('semester')
+
+        if not target_id:
+            return Response({'detail': 'id query param is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if target_type not in ('venue', 'lecturer'):
+            return Response({'detail': 'type must be "venue" or "lecturer"'}, status=status.HTTP_400_BAD_REQUEST)
+
+        all_slots = TimeSlot.objects.all().order_by('day', 'start_time')
+
+        schedule_qs = ScheduleSlot.objects.all()
+        if target_type == 'lecturer':
+            schedule_qs = schedule_qs.filter(lecturer_id=target_id)
+        else:
+            schedule_qs = schedule_qs.filter(venue_id=target_id)
+
+        if semester:
+            schedule_qs = schedule_qs.filter(semester=semester)
+
+        occupied_timeslot_ids = set(schedule_qs.values_list('timeslot_id', flat=True))
+
+        results = [
+            {
+                'id': slot.id,
+                'day': slot.day,
+                'start_time': slot.start_time.strftime('%H:%M'),
+                'end_time': slot.end_time.strftime('%H:%M'),
+                'is_free': slot.id not in occupied_timeslot_ids,
+            }
+            for slot in all_slots
+        ]
+
+        return Response(results)
+
+
+
+
+
+
+class AdminAnalyticsSummaryView(APIView):
+    """
+    GET /api/admin/analytics/summary/?semester=<semester>
+
+    Returns aggregate stats for the Admin analytics dashboard:
+    - room_utilization: % of all timeslots booked, per venue
+    - lecturer_workload: weekly teaching hours + class count, per lecturer
+    - day_distribution: total classes scheduled per weekday
+    - busiest_times: the day+time combinations with the most concurrent bookings
+      across all venues (useful for spotting peak-demand slots)
+    """
+    permission_classes = [IsAdminRole]
+
+    def get(self, request):
+        semester = request.query_params.get('semester', 'S2-2026')
+        all_timeslots_count = TimeSlot.objects.count() or 1
+
+        # ---- Room utilization ----
+        room_utilization = []
+        for venue in Venue.objects.all():
+            booked = (
+                ScheduleSlot.objects
+                .filter(venue=venue, semester=semester)
+                .values('timeslot_id')
+                .distinct()
+                .count()
+            )
+            room_utilization.append({
+                'venue_code': venue.code,
+                'venue_name': venue.name,
+                'booked_slots': booked,
+                'total_slots': all_timeslots_count,
+                'utilization_pct': round((booked / all_timeslots_count) * 100, 1),
+            })
+        room_utilization.sort(key=lambda item: -item['utilization_pct'])
+
+        # ---- Lecturer workload ----
+        lecturer_workload = []
+        for lecturer in Lecturer.objects.all():
+            slots = list(
+                ScheduleSlot.objects
+                .select_related('timeslot')
+                .filter(lecturer=lecturer, semester=semester)
+            )
+            total_minutes = 0
+            for slot in slots:
+                start = slot.timeslot.start_time
+                end = slot.timeslot.end_time
+                total_minutes += (end.hour * 60 + end.minute) - (start.hour * 60 + start.minute)
+            lecturer_workload.append({
+                'lecturer_name': lecturer.name,
+                'classes_count': len(slots),
+                'weekly_hours': round(total_minutes / 60, 1),
+            })
+        lecturer_workload.sort(key=lambda item: -item['weekly_hours'])
+
+        # ---- Classes per day ----
+        day_counts = {day: 0 for day in DAYS}
+        for slot in ScheduleSlot.objects.select_related('timeslot').filter(semester=semester):
+            day_counts[slot.timeslot.day] = day_counts.get(slot.timeslot.day, 0) + 1
+        day_distribution = [{'day': day, 'classes': day_counts.get(day, 0)} for day in DAYS]
+
+        # ---- Busiest time slots (most concurrent bookings across all venues) ----
+        time_counter = Counter()
+        for slot in ScheduleSlot.objects.select_related('timeslot').filter(semester=semester):
+            key = (slot.timeslot.day, slot.timeslot.start_time.strftime('%H:%M'))
+            time_counter[key] += 1
+
+        busiest_times = [
+            {'day': key[0], 'time': key[1], 'count': count}
+            for key, count in sorted(time_counter.items(), key=lambda kv: -kv[1])[:8]
+        ]
+
+        return Response({
+            'semester': semester,
+            'room_utilization': room_utilization,
+            'lecturer_workload': lecturer_workload,
+            'day_distribution': day_distribution,
+            'busiest_times': busiest_times,
+        })
+
+
+
+
+class AdminAutoScheduleView(APIView):
+    """
+    POST /api/admin/scheduling/auto-generate/
+
+    Body:
+    {
+        "group_id": 3,
+        "semester": "S2-2026",
+        "requirements": [
+            {"course_id": 5, "lecturer_id": 2, "venue_type": "lecture"},
+            {"course_id": 7, "lecturer_id": 4},
+            ...
+        ]
+    }
+
+    Runs the backtracking solver and returns a PREVIEW only — nothing is
+    saved to the database here. Admin reviews the suggestion in the UI and
+    creates the real ScheduleSlot rows via the normal schedule-slot
+    creation endpoint once they're happy with it.
+    """
+    permission_classes = [IsAdminRole]
+
+    def post(self, request):
+        group_id = request.data.get('group_id')
+        semester = request.data.get('semester', 'S2-2026')
+        requirements = request.data.get('requirements', [])
+
+        if not group_id:
+            return Response({'detail': 'group_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not requirements:
+            return Response({'detail': 'At least one requirement (course + lecturer) is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            group = StudentGroup.objects.get(pk=group_id)
+        except StudentGroup.DoesNotExist:
+            return Response({'detail': 'Student group not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Validate + resolve each requirement's course/lecturer up front,
+        # so the solver only ever deals with real objects.
+        resolved_requirements = []
+        for req in requirements:
+            try:
+                course = Course.objects.get(pk=req.get('course_id'))
+                lecturer = Lecturer.objects.get(pk=req.get('lecturer_id'))
+            except (Course.DoesNotExist, Lecturer.DoesNotExist):
+                return Response(
+                    {'detail': f'Invalid course_id or lecturer_id in requirement: {req}'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            resolved_requirements.append({
+                'course': course,
+                'lecturer': lecturer,
+                'lecturer_id': lecturer.id,
+                'venue_type': req.get('venue_type'),
+            })
+
+        assignments, is_complete = generate_timetable_for_group(group_id, semester, resolved_requirements)
+
+        results = []
+        for req, assignment in zip(resolved_requirements, assignments):
+            if assignment is None:
+                results.append({
+                    'course_id': req['course'].id,
+                    'course_code': req['course'].code,
+                    'course_name': req['course'].name,
+                    'lecturer_id': req['lecturer'].id,
+                    'lecturer_name': req['lecturer'].name,
+                    'status': 'unassigned',
+                })
+            else:
+                timeslot, venue = assignment
+                results.append({
+                    'course_id': req['course'].id,
+                    'course_code': req['course'].code,
+                    'course_name': req['course'].name,
+                    'lecturer_id': req['lecturer'].id,
+                    'lecturer_name': req['lecturer'].name,
+                    'timeslot_id': timeslot.id,
+                    'day': timeslot.day,
+                    'start_time': timeslot.start_time.strftime('%H:%M'),
+                    'end_time': timeslot.end_time.strftime('%H:%M'),
+                    'venue_id': venue.id,
+                    'venue_code': venue.code,
+                    'venue_name': venue.name,
+                    'status': 'assigned',
+                })
+
+        return Response({
+            'group_id': group_id,
+            'group_display': str(group),
+            'semester': semester,
+            'is_complete': is_complete,
+            'assigned_count': sum(1 for r in results if r['status'] == 'assigned'),
+            'unassigned_count': sum(1 for r in results if r['status'] == 'unassigned'),
+            'results': results,
+        })
+
+class ChangePasswordView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        from django.db import transaction
+        from rest_framework.permissions import IsAuthenticated
+        from .models import UserProfile
+        current_password = request.data.get('current_password', '')
+        new_password = request.data.get('new_password', '')
+
+        user = request.user
+        if not user.check_password(current_password):
+            return Response({'detail': 'Incorrect current password.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if len(new_password) < 8:
+            return Response({'detail': 'New password must be at least 8 characters long.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        with transaction.atomic():
+            user.set_password(new_password)
+            user.save()
+
+            # Set must_change_password to False on UserProfile
+            profile = getattr(user, 'profile', None)
+            if profile:
+                profile.must_change_password = False
+                profile.save(update_fields=['must_change_password'])
+                
+                # Also set must_change_password to False on Lecturer (if applicable)
+                if profile.lecturer:
+                    profile.lecturer.must_change_password = False
+                    profile.lecturer.save(update_fields=['must_change_password'])
+
+        return Response({'detail': 'Password changed successfully.'}, status=status.HTTP_200_OK)
+
+
+
+
+class AdminAccountsView(APIView):
+    """
+    GET  /api/admin/admins/  -> list every Admin account
+    POST /api/admin/admins/  -> create a new Admin account
+
+    POST body: { "name": "...", "email": "...", "password": "" (optional, auto-generated if blank) }
+    Uses email as the username, since Admins don't have a natural ID
+    scheme the way Lecturers/Students do (lecturer_id / registration_number).
+    """
+    permission_classes = [IsAdminRole]
+
+    def get(self, request):
+        from .models import UserProfile
+        admins = User.objects.filter(profile__role='ADMIN').order_by('username')
+        results = [
+            {
+                'id': admin.id,
+                'username': admin.username,
+                'name': admin.get_full_name().strip() or admin.username,
+                'email': admin.email,
+                'date_joined': admin.date_joined,
+                'is_you': admin.id == request.user.id,
+            }
+            for admin in admins
+        ]
+        return Response(results)
+
+    @transaction.atomic
+    def post(self, request):
+        from .models import UserProfile
+
+        name = request.data.get('name', '').strip()
+        email = request.data.get('email', '').strip()
+        password = request.data.get('password', '').strip()
+
+        if not name or not email:
+            return Response({'detail': 'Name and Email are required fields.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if User.objects.filter(email=email).exists():
+            return Response({'detail': 'An account with this email already exists.'}, status=status.HTTP_400_BAD_REQUEST)
+        if User.objects.filter(username=email).exists():
+            return Response({'detail': 'An account with this username already exists.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        raw_password = password or generate_random_password()
+
+        parts = [p for p in name.split() if p]
+        first_name = parts[0] if parts else ''
+        last_name = ' '.join(parts[1:]) if len(parts) > 1 else ''
+
+        user = User.objects.create(
+            username=email, email=email,
+            first_name=first_name, last_name=last_name,
+        )
+        user.set_password(raw_password)
+        user.save()
+
+        UserProfile.objects.create(user=user, role='ADMIN', must_change_password=True)
+
+        send_credentials_email(name, email, email, raw_password, 'Admin')
+
+        return Response({
+            'id': user.id,
+            'username': email,
+            'name': name,
+            'email': email,
+            'password': raw_password,
+            'must_change_password': True,
+        }, status=status.HTTP_201_CREATED)
+
+
+class AdminMeView(APIView):
+    """
+    GET   /api/admin/me/  -> current admin's own profile
+    PATCH /api/admin/me/  -> update own name, email, avatar (multipart/form-data)
+    Deliberately only ever touches request.user — no id parameter, so an
+    Admin can never edit another Admin's profile through this endpoint.
+    """
+    permission_classes = [IsAdminRole]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def get(self, request):
+        return Response(serialize_user(request.user, request=request))
+
+    def patch(self, request):
+        user = request.user
+        name = request.data.get('name', '').strip()
+        email = request.data.get('email', '').strip()
+
+        if name:
+            parts = [p for p in name.split() if p]
+            user.first_name = parts[0] if parts else ''
+            user.last_name = ' '.join(parts[1:]) if len(parts) > 1 else ''
+        if email:
+            if User.objects.filter(email=email).exclude(id=user.id).exists():
+                return Response({'detail': 'This email is already in use by another account.'}, status=status.HTTP_400_BAD_REQUEST)
+            user.email = email
+        user.save()
+
+        avatar_file = request.FILES.get('avatar')
+        if avatar_file:
+            profile = getattr(user, 'profile', None)
+            if profile:
+                profile.avatar = avatar_file
+                profile.save(update_fields=['avatar'])
+
+        return Response(serialize_user(user, request=request))

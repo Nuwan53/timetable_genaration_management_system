@@ -1,15 +1,6 @@
-from django.db import migrations
+from django.db import migrations, connection
 
-
-class Migration(migrations.Migration):
-
-    dependencies = [
-        ('api', '0002_userprofile'),
-    ]
-
-    operations = [
-        migrations.RunSQL(
-            sql="""
+sql_mysql = """
                 SET @sql := IF(
                     EXISTS (
                         SELECT 1 FROM information_schema.columns
@@ -51,13 +42,25 @@ class Migration(migrations.Migration):
                 PREPARE stmt3 FROM @sg_fk_sql;
                 EXECUTE stmt3;
                 DEALLOCATE PREPARE stmt3;
-            """,
-            reverse_sql="""
+            """
+
+reverse_sql_mysql = """
                 ALTER TABLE `api_userprofile`
                     DROP FOREIGN KEY `api_userprofile_lecturer_id_5a0a4a21_fk_api_lecturer_id`,
                     DROP FOREIGN KEY `api_userprofile_student_group_id_57c7b3d2_fk_api_studentgroup_id`,
                     DROP COLUMN `lecturer_id`,
                     DROP COLUMN `student_group_id`;
-            """,
+            """
+
+class Migration(migrations.Migration):
+
+    dependencies = [
+        ('api', '0002_userprofile'),
+    ]
+
+    operations = [
+        migrations.RunSQL(
+            sql='SELECT 1' if connection.vendor == 'sqlite' else sql_mysql,
+            reverse_sql='SELECT 1' if connection.vendor == 'sqlite' else reverse_sql_mysql,
         )
     ]

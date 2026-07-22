@@ -3,6 +3,40 @@ from django.db import migrations, models
 import django.db.models.deletion
 
 
+from django.db import connection
+
+sql_mysql = """
+    CREATE TABLE IF NOT EXISTS `api_userprofile` (
+        `id` bigint NOT NULL AUTO_INCREMENT,
+        `role` varchar(20) NOT NULL,
+        `must_change_password` bool NOT NULL,
+        `lecturer_id` bigint NULL,
+        `student_group_id` bigint NULL,
+        `user_id` bigint NOT NULL,
+        PRIMARY KEY (`id`),
+        UNIQUE KEY `api_userprofile_user_id_key` (`user_id`),
+        KEY `api_userprofile_lecturer_id_5a0a4a21_fk_api_lecturer_id` (`lecturer_id`),
+        KEY `api_userprofile_student_group_id_57c7b3d2_fk_api_studentgroup_id` (`student_group_id`),
+        CONSTRAINT `api_userprofile_user_id_1d0dfc76_fk_auth_user_id` FOREIGN KEY (`user_id`) REFERENCES `auth_user` (`id`) ON DELETE CASCADE,
+        CONSTRAINT `api_userprofile_lecturer_id_5a0a4a21_fk_api_lecturer_id` FOREIGN KEY (`lecturer_id`) REFERENCES `api_lecturer` (`id`) ON DELETE SET NULL,
+        CONSTRAINT `api_userprofile_student_group_id_57c7b3d2_fk_api_studentgroup_id` FOREIGN KEY (`student_group_id`) REFERENCES `api_studentgroup` (`id`) ON DELETE SET NULL
+    ) ENGINE=InnoDB;
+"""
+
+sql_sqlite = """
+    CREATE TABLE IF NOT EXISTS `api_userprofile` (
+        `id` integer PRIMARY KEY AUTOINCREMENT,
+        `role` varchar(20) NOT NULL,
+        `must_change_password` bool NOT NULL,
+        `lecturer_id` integer NULL,
+        `student_group_id` integer NULL,
+        `user_id` integer NOT NULL UNIQUE,
+        FOREIGN KEY (`user_id`) REFERENCES `auth_user` (`id`) ON DELETE CASCADE,
+        FOREIGN KEY (`lecturer_id`) REFERENCES `api_lecturer` (`id`) ON DELETE SET NULL,
+        FOREIGN KEY (`student_group_id`) REFERENCES `api_studentgroup` (`id`) ON DELETE SET NULL
+    );
+"""
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -14,23 +48,7 @@ class Migration(migrations.Migration):
         migrations.SeparateDatabaseAndState(
             database_operations=[
                 migrations.RunSQL(
-                    sql="""
-                        CREATE TABLE IF NOT EXISTS `api_userprofile` (
-                            `id` bigint NOT NULL AUTO_INCREMENT,
-                            `role` varchar(20) NOT NULL,
-                            `must_change_password` bool NOT NULL,
-                            `lecturer_id` bigint NULL,
-                            `student_group_id` bigint NULL,
-                            `user_id` bigint NOT NULL,
-                            PRIMARY KEY (`id`),
-                            UNIQUE KEY `api_userprofile_user_id_key` (`user_id`),
-                            KEY `api_userprofile_lecturer_id_5a0a4a21_fk_api_lecturer_id` (`lecturer_id`),
-                            KEY `api_userprofile_student_group_id_57c7b3d2_fk_api_studentgroup_id` (`student_group_id`),
-                            CONSTRAINT `api_userprofile_user_id_1d0dfc76_fk_auth_user_id` FOREIGN KEY (`user_id`) REFERENCES `auth_user` (`id`) ON DELETE CASCADE,
-                            CONSTRAINT `api_userprofile_lecturer_id_5a0a4a21_fk_api_lecturer_id` FOREIGN KEY (`lecturer_id`) REFERENCES `api_lecturer` (`id`) ON DELETE SET NULL,
-                            CONSTRAINT `api_userprofile_student_group_id_57c7b3d2_fk_api_studentgroup_id` FOREIGN KEY (`student_group_id`) REFERENCES `api_studentgroup` (`id`) ON DELETE SET NULL
-                        ) ENGINE=InnoDB;
-                    """,
+                    sql=sql_sqlite if connection.vendor == 'sqlite' else sql_mysql,
                     reverse_sql="DROP TABLE IF EXISTS `api_userprofile`;",
                 )
             ],

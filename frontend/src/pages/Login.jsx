@@ -1,18 +1,11 @@
 import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { ShieldCheck, GraduationCap, UserCog, Eye, EyeOff } from 'lucide-react';
+import { Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import ruhuna from '../assets/Ruhuna.jpg';
 
-const roles = [
-  { key: 'ADMIN',    label: 'Admin',    icon: <UserCog size={16}/> },
-  { key: 'LECTURER', label: 'Lecturer', icon: <ShieldCheck size={16}/> },
-  { key: 'STUDENT',  label: 'Student',  icon: <GraduationCap size={16}/> },
-];
-
 export default function Login() {
-  const [role, setRole] = useState('STUDENT');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPw, setShowPw] = useState(false);
@@ -30,12 +23,16 @@ export default function Login() {
     }
     setLoading(true);
     try {
-      const user = await login(username.trim(), password, role);
+      const user = await login(username.trim(), password);
       toast.success(`Welcome, ${user.username}`);
 
-      const defaultDest = user.role === 'ADMIN' ? '/' : user.role === 'LECTURER' ? '/lecturer' : '/student';
-      const dest = location.state?.from || defaultDest;
-      navigate(dest, { replace: true });
+      if (user.must_change_password) {
+        navigate('/change-password', { replace: true });
+      } else {
+        const defaultDest = user.role === 'ADMIN' ? '/' : user.role === 'LECTURER' ? '/lecturer' : '/student';
+        const dest = location.state?.from || defaultDest;
+        navigate(dest, { replace: true });
+      }
     } catch (err) {
       const msg = err?.response?.data?.detail || 'Invalid credentials';
       toast.error(msg);
@@ -61,7 +58,7 @@ export default function Login() {
             lecturer, and student access — always current, always in sync.
           </p>
           <div className="login-hero-stats">
-            <div><strong>3</strong><span>Roles</span></div>
+            {/* <div><strong>3</strong><span>Roles</span></div> */}
             <div><strong>24/7</strong><span>Access</span></div>
             <div><strong>Live</strong><span>Sync</span></div>
           </div>
@@ -77,21 +74,6 @@ export default function Login() {
               <div className="login-title">Timetable Manager</div>
               <div className="login-subtitle">Faculty of Science · University of Ruhuna</div>
             </div>
-          </div>
-
-          <div className="role-tabs" role="tablist" aria-label="Select role">
-            {roles.map((r) => (
-              <button
-                type="button"
-                key={r.key}
-                role="tab"
-                aria-selected={role === r.key}
-                className={`role-tab${role === r.key ? ' active' : ''}`}
-                onClick={() => setRole(r.key)}
-              >
-                {r.icon} {r.label}
-              </button>
-            ))}
           </div>
 
           <form onSubmit={handleSubmit} className="login-form">
@@ -122,12 +104,12 @@ export default function Login() {
                 onClick={() => setShowPw((s) => !s)}
                 aria-label={showPw ? 'Hide password' : 'Show password'}
               >
-                {showPw ? <EyeOff size={16}/> : <Eye size={16}/>}
+                {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
             </div>
 
             <button className="login-btn" type="submit" disabled={loading}>
-              {loading ? 'Signing in…' : `Sign in as ${roles.find(r => r.key===role).label}`}
+              {loading ? 'Signing in…' : 'Sign in'}
             </button>
           </form>
 

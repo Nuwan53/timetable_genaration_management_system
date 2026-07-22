@@ -7,6 +7,7 @@ from .views import (
     LecturerRequestViewSet, LecturerNotificationViewSet,
     StudentDashboardView, StudentProfileView,
     StudentAccountViewSet,
+    AdminLecturerCreateView, AdminStudentCreateView, ChangePasswordView,AdminFreeSlotsView,AdminAnalyticsSummaryView,AdminBulkStudentUploadView, AdminBulkLecturerUploadView, AdminAutoScheduleView, AdminAccountsView, AdminMeView
 )
 
 router = DefaultRouter()
@@ -20,12 +21,24 @@ router.register(r'slots', ScheduleSlotViewSet)
 
 urlpatterns = [
     path('auth/login/', auth_login),
+    path('auth/change-password/', ChangePasswordView.as_view()),
+    path('admin/lecturers/', AdminLecturerCreateView.as_view()),
+    path('admin/students/', AdminStudentCreateView.as_view()),
+    path('admin/analytics/free-slots/', AdminFreeSlotsView.as_view(), name='admin-free-slots'),
+    path('admin/analytics/summary/', AdminAnalyticsSummaryView.as_view(), name='admin-analytics-summary'),
+    path('admin/students/bulk-upload/', AdminBulkStudentUploadView.as_view(), name='admin-bulk-students'),
+    path('admin/lecturers/bulk-upload/', AdminBulkLecturerUploadView.as_view(), name='admin-bulk-lecturers'),
+    path('admin/scheduling/auto-generate/', AdminAutoScheduleView.as_view(), name='admin-auto-schedule'),
+    path('admin/admins/', AdminAccountsView.as_view(), name='admin-accounts'),
+    path('admin/me/', AdminMeView.as_view(), name='admin-me'),
     path('student/dashboard/', StudentDashboardView.as_view()),
     path('student/profile/', StudentProfileView.as_view()),
     path('lecturer/me/', LecturerMeViewSet.as_view({'get': 'list', 'put': 'update', 'patch': 'update'})),
     path('lecturer/schedule/', LecturerScheduleViewSet.as_view({'get': 'list'})),
     path('lecturer/requests/', LecturerRequestViewSet.as_view({'get': 'list', 'post': 'create'})),
     path('lecturer/requests/<int:pk>/', LecturerRequestViewSet.as_view({'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'})),
+    path('lecturer/requests/<int:pk>/approve/', LecturerRequestViewSet.as_view({'post': 'approve'})),
+    path('lecturer/requests/<int:pk>/reject/', LecturerRequestViewSet.as_view({'post': 'reject'})),
     path('lecturer/notifications/', LecturerNotificationViewSet.as_view({'get': 'list'})),
 ]
 

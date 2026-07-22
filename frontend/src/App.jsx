@@ -1,12 +1,13 @@
 import { BrowserRouter, Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
-import { LayoutDashboard, BookOpen, Users, MapPin, Clock, CalendarDays, LayoutGrid, LogOut, Search, Bell, ChevronRight, GraduationCap } from 'lucide-react';
+import { LayoutDashboard, BookOpen, Users, MapPin, Clock, CalendarDays, LayoutGrid, LogOut, Search, Bell, ChevronRight, GraduationCap, CalendarSearch, UploadCloud, Wand2 , ShieldPlus} from 'lucide-react';
 import './index.css';
 
 import { AuthProvider, useAuth } from './context/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
 
 import Login      from './pages/Login';
+import ChangePassword from './pages/ChangePassword';
 import Dashboard  from './pages/Dashboard';
 import StudentDashboard from './pages/StudentDashboard';
 import LecturerDashboard from './pages/LecturerDashboard';
@@ -17,22 +18,35 @@ import Venues     from './pages/Venues';
 import Groups     from './pages/Groups';
 import TimeSlots  from './pages/TimeSlots';
 import Timetable  from './pages/Timetable';
+import AdminAnalytics from './pages/AdminAnalytics';
+import BulkUpload from './pages/BulkUpload';
+import AutoScheduler from './pages/AutoScheduler';
+import Admins from './pages/Admins';
+import AdminProfile from './pages/AdminProfile';
 
 const nav = [
   { to:'/',           label:'Dashboard',      icon:<LayoutDashboard size={16}/>, roles:['ADMIN','LECTURER','STUDENT'] },
-  { to:'/timetable',  label:'Timetable',      icon:<LayoutGrid size={16}/>,      roles:['ADMIN','LECTURER','STUDENT'] },
-  { to:'/courses',    label:'Courses',        icon:<BookOpen size={16}/>,        roles:['ADMIN'] },
+  { to:'/timetable', label:'Timetable', icon:<LayoutGrid size={16}/>, roles:['ADMIN','LECTURER','STUDENT'] },  { to:'/courses',    label:'Courses',        icon:<BookOpen size={16}/>,        roles:['ADMIN'] },
   { to:'/lecturers',  label:'Lecturers',      icon:<Users size={16}/>,           roles:['ADMIN'] },
   { to:'/students',   label:'Students',       icon:<GraduationCap size={16}/>,   roles:['ADMIN'] },
   { to:'/venues',     label:'Venues',         icon:<MapPin size={16}/>,          roles:['ADMIN'] },
   { to:'/groups',     label:'Student Groups', icon:<CalendarDays size={16}/>,    roles:['ADMIN'] },
   { to:'/timeslots',  label:'Time Slots',     icon:<Clock size={16}/>,           roles:['ADMIN'] },
+  { to:'/analytics',  label:'Availability',   icon:<CalendarSearch size={16}/>,  roles:['ADMIN'] },
+  { to:'/bulk-upload', label:'Bulk Registration', icon:<UploadCloud size={16}/>, roles:['ADMIN'] },
+  { to:'/auto-scheduler', label:'Auto Scheduler', icon:<Wand2 size={16}/>, roles:['ADMIN'] },
+  { to:'/admins', label:'Admins', icon:<ShieldPlus size={16}/>, roles:['ADMIN'] },
+
+
 ];
 
 const pageTitle = {
   '/': 'Dashboard', '/student': 'Dashboard', '/lecturer': 'Dashboard', '/timetable': 'Timetable', '/courses': 'Courses',
   '/lecturers': 'Lecturers', '/venues': 'Venues',
   '/students': 'Students', '/groups': 'Student Groups', '/timeslots': 'Time Slots',
+  '/analytics': 'Availability', '/bulk-upload': 'Bulk Registration', '/auto-scheduler': 'Auto Scheduler', '/admins': 'Admins', '/profile': 'My Profile',
+
+
 };
 
 function AppShell() {
@@ -62,16 +76,17 @@ function AppShell() {
         </nav>
         <div className="sidebar-footer">
           <a className="sidebar-footer-link" href="#">Help Center</a>
-          <a className="sidebar-footer-link" href="#">Settings</a>
-          <div className="sidebar-userchip">
-            <div className="sidebar-user-avatar" style={{ overflow: 'hidden' }}>
-              {user.avatar_url ? <img src={user.avatar_url} alt="Profile avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : avatarFallback}
-            </div>
-            <div>
-              <div className="sidebar-user-name">{user.username}</div>
-              <div className="sidebar-user-role">{user.role}</div>
-            </div>
-          </div>
+            <NavLink className="sidebar-footer-link" to="/profile">Settings</NavLink>
+
+            <NavLink to="/profile" className="sidebar-userchip" style={{ textDecoration: 'none' }}>
+              <div className="sidebar-user-avatar" style={{ overflow: 'hidden' }}>
+                {user.avatar_url ? <img src={user.avatar_url} alt="Profile avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : avatarFallback}
+              </div>
+              <div>
+                <div className="sidebar-user-name">{user.username}</div>
+                <div className="sidebar-user-role">{user.role}</div>
+              </div>
+            </NavLink>
           <button className="logout-btn" onClick={logout}>
             <LogOut size={14}/> Logout
           </button>
@@ -111,13 +126,18 @@ function AppShell() {
             <Route path="/"           element={<HomePage/>}/>
             <Route path="/student"    element={<StudentDashboard/>}/>
             <Route path="/lecturer"   element={<LecturerDashboard/>}/>
-            <Route path="/timetable"  element={<Timetable/>}/>
+            <Route path="/timetable" element={<Timetable/>}/>            
             <Route path="/courses"    element={<ProtectedRoute allow={['ADMIN']}><Courses/></ProtectedRoute>}/>
             <Route path="/lecturers"  element={<ProtectedRoute allow={['ADMIN']}><Lecturers/></ProtectedRoute>}/>
             <Route path="/students"   element={<ProtectedRoute allow={['ADMIN']}><Students/></ProtectedRoute>}/>
             <Route path="/venues"     element={<ProtectedRoute allow={['ADMIN']}><Venues/></ProtectedRoute>}/>
             <Route path="/groups"     element={<ProtectedRoute allow={['ADMIN']}><Groups/></ProtectedRoute>}/>
             <Route path="/timeslots"  element={<ProtectedRoute allow={['ADMIN']}><TimeSlots/></ProtectedRoute>}/>
+            <Route path="/analytics"  element={<ProtectedRoute allow={['ADMIN']}><AdminAnalytics/></ProtectedRoute>}/>
+            <Route path="/bulk-upload" element={<ProtectedRoute allow={['ADMIN']}><BulkUpload/></ProtectedRoute>}/>
+            <Route path="/auto-scheduler" element={<ProtectedRoute allow={['ADMIN']}><AutoScheduler/></ProtectedRoute>}/>
+            <Route path="/admins" element={<ProtectedRoute allow={['ADMIN']}><Admins/></ProtectedRoute>}/>
+            <Route path="/profile" element={<AdminProfile/>}/>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </div>
@@ -133,6 +153,7 @@ export default function App() {
         <Toaster position="top-right" toastOptions={{ style: { fontSize: 13 } }}/>
         <Routes>
           <Route path="/login" element={<Login/>} />
+          <Route path="/change-password" element={<ProtectedRoute><ChangePassword/></ProtectedRoute>} />
           <Route
             path="/*"
             element={
