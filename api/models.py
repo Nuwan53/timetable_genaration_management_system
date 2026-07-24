@@ -54,6 +54,8 @@ class StudentGroup(models.Model):
     stream = models.CharField(max_length=10, choices=STREAM_CHOICES)
     subgroup = models.CharField(max_length=10, blank=True)
     year = models.CharField(max_length=4, default='2024')
+    courses = models.ManyToManyField(Course, blank=True, related_name='student_groups')  # ADD THIS LINE
+
 
     def __str__(self):
         sub = f" ({self.subgroup})" if self.subgroup else ""
