@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -13,7 +13,6 @@ export default function Login() {
 
   const { login } = useAuth();
   const navigate = useNavigate();
-  const location = useLocation();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -26,13 +25,8 @@ export default function Login() {
       const user = await login(username.trim(), password);
       toast.success(`Welcome, ${user.username}`);
 
-      if (user.must_change_password) {
-        navigate('/change-password', { replace: true });
-      } else {
-        const defaultDest = user.role === 'ADMIN' ? '/' : user.role === 'LECTURER' ? '/lecturer' : '/student';
-        const dest = location.state?.from || defaultDest;
-        navigate(dest, { replace: true });
-      }
+      const defaultDest = user.role === 'ADMIN' ? '/' : user.role === 'LECTURER' ? '/lecturer' : '/student';
+      navigate(defaultDest, { replace: true });
     } catch (err) {
       const msg = err?.response?.data?.detail || 'Invalid credentials';
       toast.error(msg);
@@ -58,7 +52,7 @@ export default function Login() {
             lecturer, and student access — always current, always in sync.
           </p>
           <div className="login-hero-stats">
-            {/* <div><strong>3</strong><span>Roles</span></div> */}
+            <div><strong>3</strong><span>Roles</span></div>
             <div><strong>24/7</strong><span>Access</span></div>
             <div><strong>Live</strong><span>Sync</span></div>
           </div>
@@ -104,7 +98,7 @@ export default function Login() {
                 onClick={() => setShowPw((s) => !s)}
                 aria-label={showPw ? 'Hide password' : 'Show password'}
               >
-                {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
+                {showPw ? <EyeOff size={16}/> : <Eye size={16}/>}
               </button>
             </div>
 
