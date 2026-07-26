@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
-import { LayoutDashboard, BookOpen, Users, MapPin, Clock, CalendarDays, LayoutGrid, LogOut, Search, Bell, ChevronRight, GraduationCap, CalendarSearch, UploadCloud, Wand2 , ShieldPlus} from 'lucide-react';
+import { LayoutDashboard, BookOpen, Users, MapPin, Clock, CalendarDays, LayoutGrid, LogOut, Search, Bell, ChevronRight, GraduationCap, CalendarSearch, UploadCloud, Wand2 , ShieldPlus, BookMarked} from 'lucide-react';
 import './index.css';
 
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -23,6 +23,7 @@ import BulkUpload from './pages/BulkUpload';
 import AutoScheduler from './pages/AutoScheduler';
 import Admins from './pages/Admins';
 import AdminProfile from './pages/AdminProfile';
+import Curriculum from './pages/Curriculum';
 
 const nav = [
   { to:'/',           label:'Dashboard',      icon:<LayoutDashboard size={16}/>, roles:['ADMIN','LECTURER','STUDENT'] },
@@ -35,6 +36,7 @@ const nav = [
   { to:'/analytics',  label:'Availability',   icon:<CalendarSearch size={16}/>,  roles:['ADMIN'] },
   { to:'/bulk-upload', label:'Bulk Registration', icon:<UploadCloud size={16}/>, roles:['ADMIN'] },
   { to:'/auto-scheduler', label:'Auto Scheduler', icon:<Wand2 size={16}/>, roles:['ADMIN'] },
+  { to:'/curriculum', label:'Curriculum', icon:<BookMarked size={16}/>, roles:['ADMIN'] },
   { to:'/admins', label:'Admins', icon:<ShieldPlus size={16}/>, roles:['ADMIN'] },
 
 
@@ -44,7 +46,7 @@ const pageTitle = {
   '/': 'Dashboard', '/student': 'Dashboard', '/lecturer': 'Dashboard', '/timetable': 'Timetable', '/courses': 'Courses',
   '/lecturers': 'Lecturers', '/venues': 'Venues',
   '/students': 'Students', '/groups': 'Student Groups', '/timeslots': 'Time Slots',
-  '/analytics': 'Availability', '/bulk-upload': 'Bulk Registration', '/auto-scheduler': 'Auto Scheduler', '/admins': 'Admins', '/profile': 'My Profile',
+  '/analytics': 'Availability', '/bulk-upload': 'Bulk Registration', '/auto-scheduler': 'Auto Scheduler', '/admins': 'Admins', '/profile': 'My Profile', '/curriculum': 'Curriculum',
 
 
 };
@@ -138,6 +140,7 @@ function AppShell() {
             <Route path="/auto-scheduler" element={<ProtectedRoute allow={['ADMIN']}><AutoScheduler/></ProtectedRoute>}/>
             <Route path="/admins" element={<ProtectedRoute allow={['ADMIN']}><Admins/></ProtectedRoute>}/>
             <Route path="/profile" element={<AdminProfile/>}/>
+            <Route path="/curriculum" element={<ProtectedRoute allow={['ADMIN']}><Curriculum/></ProtectedRoute>}/>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </div>
