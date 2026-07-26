@@ -94,12 +94,12 @@ def build_student_dashboard(profile, request, semester='S2-2026'):
     todays_remaining.sort(key=lambda slot: slot.timeslot.start_time)
 
     total_minutes = 0
-    course_ids = set()
     for slot in slots:
         start_minutes = slot.timeslot.start_time.hour * 60 + slot.timeslot.start_time.minute
         end_minutes = slot.timeslot.end_time.hour * 60 + slot.timeslot.end_time.minute
         total_minutes += max(0, end_minutes - start_minutes)
-        course_ids.add(slot.course_id)
+ 
+    curriculum_courses = list(profile.student_group.courses.all()) if profile.student_group else []
 
     announcements = Announcement.objects.select_related('student_group').filter(
         Q(audience='FACULTY') |
@@ -111,12 +111,15 @@ def build_student_dashboard(profile, request, semester='S2-2026'):
         student_group=profile.student_group
     ).order_by('-created_at')[:10]
 
+    profile_data = StudentProfileSerializer(profile, context={'request': request}).data
+    profile_data['enrolled_subjects'] = CourseSerializer(curriculum_courses, many=True).data
+ 
     return {
-        'profile': StudentProfileSerializer(profile, context={'request': request}).data,
+        'profile': profile_data,
         'stats': {
             'classes_today': len(todays_slots),
             'weekly_hours': round(total_minutes / 60, 1),
-            'subjects_enrolled': len(course_ids),
+            'subjects_enrolled': len(curriculum_courses),
         },
         'timetable': ScheduleSlotReadSerializer(slots, many=True).data,
         'todays_remaining': ScheduleSlotReadSerializer(todays_remaining, many=True).data,
@@ -545,22 +548,30 @@ class StudentDashboardView(APIView):
 
 class StudentProfileView(APIView):
     parser_classes = [MultiPartParser, FormParser]
-
+ 
     def get(self, request):
         profile = get_student_profile(request)
         if profile is None:
             return Response({'detail': 'Student profile not found'}, status=status.HTTP_403_FORBIDDEN)
-        return Response(StudentProfileSerializer(profile, context={'request': request}).data)
-
+ 
+        data = StudentProfileSerializer(profile, context={'request': request}).data
+        curriculum_courses = profile.student_group.courses.all() if profile.student_group else Course.objects.none()
+        data['enrolled_subjects'] = CourseSerializer(curriculum_courses, many=True).data
+        return Response(data)
+ 
     def patch(self, request):
         profile = get_student_profile(request)
         if profile is None:
             return Response({'detail': 'Student profile not found'}, status=status.HTTP_403_FORBIDDEN)
-
+ 
         serializer = StudentProfileSerializer(profile, data=request.data, partial=True, context={'request': request})
         serializer.is_valid(raise_exception=True)
         serializer.save()
-        return Response(StudentProfileSerializer(profile, context={'request': request}).data)
+ 
+        data = StudentProfileSerializer(profile, context={'request': request}).data
+        curriculum_courses = profile.student_group.courses.all() if profile.student_group else Course.objects.none()
+        data['enrolled_subjects'] = CourseSerializer(curriculum_courses, many=True).data
+        return Response(data)
 
 
 def generate_lecturer_id():
@@ -1181,6 +1192,52 @@ class AdminAutoScheduleView(APIView):
             'assigned_count': sum(1 for r in results if r['status'] == 'assigned'),
             'unassigned_count': sum(1 for r in results if r['status'] == 'unassigned'),
             'results': results,
+        })
+
+
+class AdminCurriculumView(APIView):
+    """
+    GET /api/admin/curriculum/?group_id=<id>  -> {group_id, course_ids: [...]}
+    PUT /api/admin/curriculum/                -> body: {group_id, course_ids: [...]}
+
+    Deliberately a separate, small endpoint rather than folding this into
+    StudentGroupViewSet — keeps curriculum editing isolated from whatever
+    your existing Groups.jsx CRUD form already does, so nothing there
+    needs to change.
+    """
+    permission_classes = [IsAdminRole]
+
+    def get(self, request):
+        group_id = request.query_params.get('group_id')
+        if not group_id:
+            return Response({'detail': 'group_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            group = StudentGroup.objects.get(pk=group_id)
+        except StudentGroup.DoesNotExist:
+            return Response({'detail': 'Student group not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        return Response({
+            'group_id': group.id,
+            'course_ids': list(group.courses.values_list('id', flat=True)),
+        })
+
+    def put(self, request):
+        group_id = request.data.get('group_id')
+        course_ids = request.data.get('course_ids', [])
+
+        if not group_id:
+            return Response({'detail': 'group_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            group = StudentGroup.objects.get(pk=group_id)
+        except StudentGroup.DoesNotExist:
+            return Response({'detail': 'Student group not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        courses_qs = Course.objects.filter(id__in=course_ids)
+        group.courses.set(courses_qs)
+
+        return Response({
+            'group_id': group.id,
+            'course_ids': list(group.courses.values_list('id', flat=True)),
         })
 
 class ChangePasswordView(APIView):
