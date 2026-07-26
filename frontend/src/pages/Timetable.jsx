@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { slots, courses, lecturers, venues, groups, timeslots } from '../api';
 // eslint-disable-next-line no-unused-vars
 import { Download, Plus, X } from 'lucide-react';
@@ -61,6 +61,35 @@ export default function Timetable() {
     const time  = slot.timeslot.start_time;
     grid[day][time] = slot;
   });
+
+  // ---- Curriculum-filtered course list ----
+  // Union of curriculum courses across whichever groups are CURRENTLY
+  // ticked in the modal. If a group has no `courses` data at all (e.g.
+  // curriculum was never set up for it, or the serializer doesn't expose
+  // the field yet), we fall back to showing every course instead of
+  // silently offering an empty, confusing dropdown.
+  const { filteredCourses, curriculumAvailable } = useMemo(() => {
+    const selectedGroupIds = form.selectedGroups || [];
+    const tickedGroups = allGroups.filter(g => selectedGroupIds.includes(g.id));
+
+    const anyGroupHasCurriculumData = tickedGroups.some(
+      g => Array.isArray(g.courses)
+    );
+
+    if (!anyGroupHasCurriculumData || tickedGroups.length === 0) {
+      return { filteredCourses: allCourses, curriculumAvailable: false };
+    }
+
+    const idSet = new Set();
+    tickedGroups.forEach(g => (g.courses || []).forEach(id => idSet.add(id)));
+
+    const narrowed = allCourses.filter(c => idSet.has(c.id));
+    // If the curriculum for the ticked groups is genuinely empty, fall
+    // back rather than showing a dead-end empty dropdown.
+    return narrowed.length > 0
+      ? { filteredCourses: narrowed, curriculumAvailable: true }
+      : { filteredCourses: allCourses, curriculumAvailable: false };
+  }, [allGroups, allCourses, form.selectedGroups]);
 
   const openAdd = (tsId, day) => {
     if (!isAdmin) return; // safety net — should never be reachable by non-admins anyway
@@ -273,24 +302,7 @@ export default function Timetable() {
               <ul>{conflicts.map((c,i) => <li key={i}>{c}</li>)}</ul>
             </div>
           )}
-          <div className="form-group"><label>Course</label>
-            <select value={form.course} onChange={e=>setForm({...form,course:e.target.value})}>
-              <option value="">— Select course —</option>
-              {allCourses.map(c=><option key={c.id} value={c.id}>{c.code} — {c.name}</option>)}
-            </select>
-          </div>
-          <div className="form-group"><label>Lecturer</label>
-            <select value={form.lecturer} onChange={e=>setForm({...form,lecturer:e.target.value})}>
-              <option value="">— Select lecturer —</option>
-              {allLecturers.map(l=><option key={l.id} value={l.id}>{l.name}</option>)}
-            </select>
-          </div>
-          <div className="form-group"><label>Venue</label>
-            <select value={form.venue} onChange={e=>setForm({...form,venue:e.target.value})}>
-              <option value="">— Select venue —</option>
-              {allVenues.map(v=><option key={v.id} value={v.id}>{v.code} — {v.name}</option>)}
-            </select>
-          </div>
+
           <div className="form-group"><label>Student Groups (Select Multiple)</label>
             <div style={{border:'1px solid #e2e8f0',borderRadius:'6px',padding:'10px',maxHeight:'200px',overflowY:'auto'}}>
               {allGroups
@@ -317,6 +329,41 @@ export default function Timetable() {
               )}
             </div>
           </div>
+
+          <div className="form-group">
+            <label>
+              Course
+              {curriculumAvailable && (
+                <span className="badge badge-green" style={{ marginLeft: 8, fontWeight: 500 }}>
+                  Filtered to selected groups' curriculum
+                </span>
+              )}
+            </label>
+            <select value={form.course} onChange={e=>setForm({...form,course:e.target.value})}>
+              <option value="">— Select course —</option>
+              {filteredCourses.map(c=><option key={c.id} value={c.id}>{c.code} — {c.name}</option>)}
+            </select>
+            {!curriculumAvailable && (form.selectedGroups?.length ?? 0) > 0 && (
+              <p style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>
+                Showing all courses — set up a curriculum for the selected group(s) on the
+                <strong> Curriculum</strong> page to narrow this list.
+              </p>
+            )}
+          </div>
+
+          <div className="form-group"><label>Lecturer</label>
+            <select value={form.lecturer} onChange={e=>setForm({...form,lecturer:e.target.value})}>
+              <option value="">— Select lecturer —</option>
+              {allLecturers.map(l=><option key={l.id} value={l.id}>{l.name}</option>)}
+            </select>
+          </div>
+          <div className="form-group"><label>Venue</label>
+            <select value={form.venue} onChange={e=>setForm({...form,venue:e.target.value})}>
+              <option value="">— Select venue —</option>
+              {allVenues.map(v=><option key={v.id} value={v.id}>{v.code} — {v.name}</option>)}
+            </select>
+          </div>
+
           <div className="form-group"><label>Notes (optional)</label>
             <input value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})} placeholder="e.g. W01–W06 only"/>
           </div>
