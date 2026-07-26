@@ -28,6 +28,7 @@ class VenueSerializer(serializers.ModelSerializer):
 
 class StudentGroupSerializer(serializers.ModelSerializer):
     display = serializers.SerializerMethodField()
+    courses = serializers.PrimaryKeyRelatedField(many = True, queryset=Course.objects.all(), required=False)
 
     class Meta:
         model = StudentGroup
