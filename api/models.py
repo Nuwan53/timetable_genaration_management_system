@@ -52,7 +52,7 @@ class StudentGroup(models.Model):
 
     level = models.CharField(max_length=5, choices=LEVEL_CHOICES)
     stream = models.CharField(max_length=10, choices=STREAM_CHOICES)
-    subgroup = models.CharField(max_length=10, blank=True)
+    subgroup = models.CharField(max_length=50, blank=True)
     year = models.CharField(max_length=4, default='2024')
     courses = models.ManyToManyField(Course, blank=True, related_name='student_groups')  # ADD THIS LINE
 
