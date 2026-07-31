@@ -1,4 +1,15 @@
+# ============================================================
+# Imports
+# ============================================================
+import io
+import csv
 import secrets
+import datetime
+from collections import Counter
+
+import openpyxl
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.worksheet.datavalidation import DataValidation
 
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
@@ -6,6 +17,7 @@ from django.http import HttpResponse
 from django.db.models import Q
 from django.db import transaction
 from django.utils import timezone
+
 from rest_framework import viewsets, status
 from rest_framework.permissions import AllowAny, BasePermission, IsAuthenticated
 from rest_framework.decorators import action, api_view, permission_classes, authentication_classes
@@ -13,7 +25,12 @@ from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
-from .models import Course, Lecturer, Venue, StudentGroup, TimeSlot, ScheduleSlot, LecturerRequest, LecturerNotification, Announcement, StudentNotification, UserProfile
+
+from .models import (
+    Course, Lecturer, Venue, StudentGroup, TimeSlot, ScheduleSlot,
+    LecturerRequest, LecturerNotification, Announcement, StudentNotification,
+    UserProfile,
+)
 from .serializers import (
     CourseSerializer, LecturerSerializer, VenueSerializer,
     StudentGroupSerializer, TimeSlotSerializer,
@@ -23,6 +40,8 @@ from .serializers import (
     StudentAccountSerializer,
     AnnouncementSerializer, StudentNotificationSerializer,
 )
+from .emails import send_class_change_email, send_credentials_email
+from .scheduler import generate_timetable_for_group
 
 # ── PDF export ───────────────────────────────────────────────────────────────
 from reportlab.lib.pagesizes import A4, landscape
@@ -30,16 +49,68 @@ from reportlab.lib import colors
 from reportlab.lib.units import cm
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from collections import Counter
-from .emails import send_class_change_email
-import io
-import csv
-from .emails import send_credentials_email
-from .scheduler import generate_timetable_for_group
+
 
 DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
 TIMES = ['08:00', '09:00', '10:00', '11:00', '12:00', '13:00',
          '14:00', '15:00', '16:00', '17:00']
+
+
+# ============================================================
+# Shared helpers
+# ============================================================
+
+def parse_uploaded_file(file):
+    """
+    Returns (fieldnames, list_of_row_dicts) — works for both .xlsx and .csv,
+    so the rest of each bulk upload view's per-row logic never needs to
+    care which format was actually uploaded.
+    """
+    name = (file.name or '').lower()
+
+    if name.endswith('.xlsx'):
+        wb = openpyxl.load_workbook(file, data_only=True)
+        ws = wb.active
+        rows_iter = ws.iter_rows(values_only=True)
+        headers = [str(h).strip() if h else '' for h in next(rows_iter)]
+        data_rows = []
+        for row in rows_iter:
+            if row is None or all(v is None for v in row):
+                continue  # skip fully blank rows
+            row_dict = {
+                headers[i]: ('' if row[i] is None else str(row[i]).strip())
+                for i in range(len(headers)) if i < len(row)
+            }
+            data_rows.append(row_dict)
+        return headers, data_rows
+
+    # Fall back to CSV
+    decoded = file.read().decode('utf-8-sig')
+    reader = csv.DictReader(io.StringIO(decoded))
+    return (reader.fieldnames or []), list(reader)
+
+
+def generate_lecturer_id():
+    year = datetime.datetime.now().year
+    prefix = f"LEC-{year}-"
+    lecturers_list = Lecturer.objects.filter(lecturer_id__startswith=prefix)
+    max_num = 0
+    for lec in lecturers_list:
+        if lec.lecturer_id:
+            try:
+                parts = lec.lecturer_id.split('-')
+                if len(parts) == 3:
+                    num = int(parts[2])
+                    if num > max_num:
+                        max_num = num
+            except (ValueError, IndexError):
+                pass
+    return f"{prefix}{max_num + 1:03d}"
+
+
+def generate_random_password():
+    chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*"
+    return "".join(secrets.choice(chars) for _ in range(10))
 
 
 class IsAdminRole(BasePermission):
@@ -98,7 +169,7 @@ def build_student_dashboard(profile, request, semester='S2-2026'):
         start_minutes = slot.timeslot.start_time.hour * 60 + slot.timeslot.start_time.minute
         end_minutes = slot.timeslot.end_time.hour * 60 + slot.timeslot.end_time.minute
         total_minutes += max(0, end_minutes - start_minutes)
- 
+
     curriculum_courses = list(profile.student_group.courses.all()) if profile.student_group else []
 
     announcements = Announcement.objects.select_related('student_group').filter(
@@ -107,13 +178,13 @@ def build_student_dashboard(profile, request, semester='S2-2026'):
         Q(audience='GROUP', student_group=profile.student_group)
     ).order_by('-published_at')[:10]
 
-    notifications = StudentNotification.objects.select_related('student_group', 'schedule_slot', 'schedule_slot__course', 'schedule_slot__timeslot', 'schedule_slot__venue').filter(
-        student_group=profile.student_group
-    ).order_by('-created_at')[:10]
+    notifications = StudentNotification.objects.select_related(
+        'student_group', 'schedule_slot', 'schedule_slot__course', 'schedule_slot__timeslot', 'schedule_slot__venue'
+    ).filter(student_group=profile.student_group).order_by('-created_at')[:10]
 
     profile_data = StudentProfileSerializer(profile, context={'request': request}).data
     profile_data['enrolled_subjects'] = CourseSerializer(curriculum_courses, many=True).data
- 
+
     return {
         'profile': profile_data,
         'stats': {
@@ -129,8 +200,12 @@ def build_student_dashboard(profile, request, semester='S2-2026'):
     }
 
 
+# ============================================================
+# Auth
+# ============================================================
+
 @api_view(['POST'])
-@authentication_classes([]) 
+@authentication_classes([])
 @permission_classes([AllowAny])
 def auth_login(request):
     username = str(request.data.get('username', '')).strip()
@@ -152,6 +227,40 @@ def auth_login(request):
         'user': serialize_user(user, request=request),
     })
 
+
+class ChangePasswordView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        current_password = request.data.get('current_password', '')
+        new_password = request.data.get('new_password', '')
+
+        user = request.user
+        if not user.check_password(current_password):
+            return Response({'detail': 'Incorrect current password.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if len(new_password) < 8:
+            return Response({'detail': 'New password must be at least 8 characters long.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        with transaction.atomic():
+            user.set_password(new_password)
+            user.save()
+
+            profile = getattr(user, 'profile', None)
+            if profile:
+                profile.must_change_password = False
+                profile.save(update_fields=['must_change_password'])
+
+                if profile.lecturer:
+                    profile.lecturer.must_change_password = False
+                    profile.lecturer.save(update_fields=['must_change_password'])
+
+        return Response({'detail': 'Password changed successfully.'}, status=status.HTTP_200_OK)
+
+
+# ============================================================
+# Core CRUD ViewSets
+# ============================================================
 
 class CourseViewSet(viewsets.ModelViewSet):
     queryset = Course.objects.all()
@@ -234,14 +343,6 @@ class ScheduleSlotViewSet(viewsets.ModelViewSet):
 
         return qs
 
-
-  # Add this import near the top of views.py, alongside your other imports:
-
-
-
-# --- Inside ScheduleSlotViewSet, add these two methods ---
-# (keep your existing get_serializer_class and get_queryset as they are)
-
     def perform_update(self, serializer):
         instance = self.get_object()
         old_timeslot_id = instance.timeslot_id
@@ -255,9 +356,7 @@ class ScheduleSlotViewSet(viewsets.ModelViewSet):
         if not (timeslot_changed or venue_changed):
             return  # nothing schedule-relevant changed, skip notifications
 
-        # StudentNotification has RESCHEDULE / ROOM_CHANGE as separate types
         student_notif_type = 'ROOM_CHANGE' if (venue_changed and not timeslot_changed) else 'RESCHEDULE'
-        # LecturerNotification only has a single generic "CHANGE" type — no RESCHEDULE/ROOM_CHANGE choice
         lecturer_notif_type = 'CHANGE'
 
         title = f"Schedule Updated: {updated.course.code}"
@@ -301,7 +400,6 @@ class ScheduleSlotViewSet(viewsets.ModelViewSet):
         )
 
     def perform_destroy(self, instance):
-        # 'CANCEL' is a valid choice on BOTH models — no mapping needed here
         title = f"Cancelled: {instance.course.code}"
         message = (
             f"Your class on {instance.timeslot.day} "
@@ -342,6 +440,96 @@ class ScheduleSlotViewSet(viewsets.ModelViewSet):
 
         instance.delete()
 
+    @action(detail=False, methods=['get'], url_path='export-pdf')
+    def export_pdf(self, request):
+            level = request.query_params.get('level', 'I')
+            stream = request.query_params.get('stream', 'physical')
+            semester = request.query_params.get('semester', 'S2-2026')
+    
+            slots = ScheduleSlot.objects.select_related(
+                'timeslot', 'course', 'lecturer', 'venue', 'group'
+            ).filter(
+                group__level=level,
+                group__stream=stream,
+                semester=semester,
+            )
+    
+            grid = {d: {} for d in DAYS}
+            for slot in slots:
+                hour = slot.timeslot.start_time.strftime('%H:%M')
+                grid[slot.timeslot.day][hour] = slot
+    
+            buffer = io.BytesIO()
+            doc = SimpleDocTemplate(buffer, pagesize=landscape(A4),
+                                    leftMargin=1*cm, rightMargin=1*cm,
+                                    topMargin=1.5*cm, bottomMargin=1*cm)
+    
+            styles = getSampleStyleSheet()
+            title_style = ParagraphStyle('title', fontSize=14, fontName='Helvetica-Bold',
+                                         spaceAfter=8, alignment=1)
+            cell_style = ParagraphStyle('cell', fontSize=7, fontName='Helvetica',
+                                        leading=10, alignment=1)
+            header_style = ParagraphStyle('hdr', fontSize=8, fontName='Helvetica-Bold',
+                                          alignment=1, textColor=colors.white)
+    
+            stream_label = 'Physical Science' if stream == 'physical' else 'Bio Science'
+            title = Paragraph(
+                f"Timetable — Level {level} ({stream_label}) — {semester}",
+                title_style
+            )
+    
+            header_row = [Paragraph('Time', header_style)] + \
+                         [Paragraph(d[:3], header_style) for d in DAYS]
+            rows = [header_row]
+    
+            for t in TIMES:
+                row = [Paragraph(t, ParagraphStyle('t', fontSize=8, alignment=1))]
+                for day in DAYS:
+                    slot = grid[day].get(t)
+                    if slot:
+                        txt = (f"<b>{slot.course.code}</b><br/>"
+                               f"{slot.venue.code}<br/>"
+                               f"{slot.lecturer.name.split()[-1]}")
+                        row.append(Paragraph(txt, cell_style))
+                    else:
+                        row.append('')
+                rows.append(row)
+    
+            col_widths = [2*cm] + [5.2*cm]*5
+            tbl = Table(rows, colWidths=col_widths, rowHeights=[0.8*cm] + [1.5*cm]*len(TIMES))
+    
+            navy = colors.HexColor('#0D1B2A')
+            accent = colors.HexColor('#2E86AB')
+    
+            tbl.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), navy),
+                ('BACKGROUND', (0, 0), (0, -1), navy),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('TEXTCOLOR', (0, 0), (0, -1), colors.white),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#D0DCE8')),
+                ('ROWBACKGROUNDS', (1, 1), (-1, -1), [colors.white, colors.HexColor('#F0F4F8')]),
+            ]))
+    
+            for r_idx, t in enumerate(TIMES, start=1):
+                for c_idx, day in enumerate(DAYS, start=1):
+                    if grid[day].get(t):
+                        tbl.setStyle(TableStyle([
+                            ('BACKGROUND', (c_idx, r_idx), (c_idx, r_idx), colors.HexColor('#E8F4F8')),
+                            ('TEXTCOLOR', (c_idx, r_idx), (c_idx, r_idx), colors.HexColor('#0D1B2A')),
+                        ]))
+    
+            story = [title, Spacer(1, 0.3*cm), tbl]
+            doc.build(story)
+    
+            buffer.seek(0)
+            filename = f"timetable_level{level}_{stream}_{semester}.pdf"
+            response = HttpResponse(buffer, content_type='application/pdf')
+            response['Content-Disposition'] = f'attachment; filename="{filename}"'
+            return response
+
 class LecturerScheduleViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = ScheduleSlotReadSerializer
 
@@ -371,7 +559,6 @@ class LecturerRequestViewSet(viewsets.ModelViewSet):
         lecturer = profile.lecturer if profile else None
         instance = serializer.save(lecturer=lecturer)
 
-        # Handle Student Notification creation for Availability requests
         request_type = self.request.data.get('request_type')
         if request_type == 'AVAILABILITY':
             student_group_ids = self.request.data.get('student_groups', [])
@@ -401,7 +588,6 @@ class LecturerRequestViewSet(viewsets.ModelViewSet):
         lecturer_request.reviewed_at = timezone.now()
         lecturer_request.save()
 
-        # Create notification for lecturer
         LecturerNotification.objects.create(
             lecturer=lecturer_request.lecturer,
             title="Request Approved",
@@ -420,7 +606,6 @@ class LecturerRequestViewSet(viewsets.ModelViewSet):
         lecturer_request.reviewed_at = timezone.now()
         lecturer_request.save()
 
-        # Create notification for lecturer
         LecturerNotification.objects.create(
             lecturer=lecturer_request.lecturer,
             title="Request Rejected",
@@ -442,99 +627,12 @@ class LecturerNotificationViewSet(viewsets.ReadOnlyModelViewSet):
             return LecturerNotification.objects.none()
         return LecturerNotification.objects.select_related('lecturer', 'schedule_slot').filter(lecturer=lecturer)
 
-    @action(detail=False, methods=['get'], url_path='export-pdf')
-    def export_pdf(self, request):
-        level = request.query_params.get('level', 'I')
-        stream = request.query_params.get('stream', 'physical')
-        semester = request.query_params.get('semester', 'S2-2026')
+    
 
-        slots = ScheduleSlot.objects.select_related(
-            'timeslot', 'course', 'lecturer', 'venue', 'group'
-        ).filter(
-            group__level=level,
-            group__stream=stream,
-            semester=semester,
-        )
 
-        # Build grid dict: grid[day][start_hour] = slot
-        grid = {d: {} for d in DAYS}
-        for slot in slots:
-            hour = slot.timeslot.start_time.strftime('%H:%M')
-            grid[slot.timeslot.day][hour] = slot
-
-        buffer = io.BytesIO()
-        doc = SimpleDocTemplate(buffer, pagesize=landscape(A4),
-                                leftMargin=1*cm, rightMargin=1*cm,
-                                topMargin=1.5*cm, bottomMargin=1*cm)
-
-        styles = getSampleStyleSheet()
-        title_style = ParagraphStyle('title', fontSize=14, fontName='Helvetica-Bold',
-                                     spaceAfter=8, alignment=1)
-        cell_style = ParagraphStyle('cell', fontSize=7, fontName='Helvetica',
-                                    leading=10, alignment=1)
-        header_style = ParagraphStyle('hdr', fontSize=8, fontName='Helvetica-Bold',
-                                      alignment=1, textColor=colors.white)
-
-        stream_label = 'Physical Science' if stream == 'physical' else 'Bio Science'
-        title = Paragraph(
-            f"Timetable — Level {level} ({stream_label}) — {semester}",
-            title_style
-        )
-
-        # Table: rows = times, cols = days
-        header_row = [Paragraph('Time', header_style)] + \
-                     [Paragraph(d[:3], header_style) for d in DAYS]
-        rows = [header_row]
-
-        for t in TIMES:
-            row = [Paragraph(t, ParagraphStyle('t', fontSize=8, alignment=1))]
-            for day in DAYS:
-                slot = grid[day].get(t)
-                if slot:
-                    txt = (f"<b>{slot.course.code}</b><br/>"
-                           f"{slot.venue.code}<br/>"
-                           f"{slot.lecturer.name.split()[-1]}")
-                    row.append(Paragraph(txt, cell_style))
-                else:
-                    row.append('')
-            rows.append(row)
-
-        col_widths = [2*cm] + [5.2*cm]*5
-        tbl = Table(rows, colWidths=col_widths, rowHeights=[0.8*cm] + [1.5*cm]*len(TIMES))
-
-        navy = colors.HexColor('#0D1B2A')
-        accent = colors.HexColor('#2E86AB')
-
-        tbl.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), navy),
-            ('BACKGROUND', (0, 0), (0, -1), navy),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-            ('TEXTCOLOR', (0, 0), (0, -1), colors.white),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#D0DCE8')),
-            ('ROWBACKGROUNDS', (1, 1), (-1, -1), [colors.white, colors.HexColor('#F0F4F8')]),
-        ]))
-
-        # Highlight filled cells
-        for r_idx, t in enumerate(TIMES, start=1):
-            for c_idx, day in enumerate(DAYS, start=1):
-                if grid[day].get(t):
-                    tbl.setStyle(TableStyle([
-                        ('BACKGROUND', (c_idx, r_idx), (c_idx, r_idx), colors.HexColor('#E8F4F8')),
-                        ('TEXTCOLOR', (c_idx, r_idx), (c_idx, r_idx), colors.HexColor('#0D1B2A')),
-                    ]))
-
-        story = [title, Spacer(1, 0.3*cm), tbl]
-        doc.build(story)
-
-        buffer.seek(0)
-        filename = f"timetable_level{level}_{stream}_{semester}.pdf"
-        response = HttpResponse(buffer, content_type='application/pdf')
-        response['Content-Disposition'] = f'attachment; filename="{filename}"'
-        return response
-
+# ============================================================
+# Student dashboard / profile
+# ============================================================
 
 class StudentDashboardView(APIView):
     def get(self, request):
@@ -548,65 +646,41 @@ class StudentDashboardView(APIView):
 
 class StudentProfileView(APIView):
     parser_classes = [MultiPartParser, FormParser]
- 
+
     def get(self, request):
         profile = get_student_profile(request)
         if profile is None:
             return Response({'detail': 'Student profile not found'}, status=status.HTTP_403_FORBIDDEN)
- 
+
         data = StudentProfileSerializer(profile, context={'request': request}).data
         curriculum_courses = profile.student_group.courses.all() if profile.student_group else Course.objects.none()
         data['enrolled_subjects'] = CourseSerializer(curriculum_courses, many=True).data
         return Response(data)
- 
+
     def patch(self, request):
         profile = get_student_profile(request)
         if profile is None:
             return Response({'detail': 'Student profile not found'}, status=status.HTTP_403_FORBIDDEN)
- 
+
         serializer = StudentProfileSerializer(profile, data=request.data, partial=True, context={'request': request})
         serializer.is_valid(raise_exception=True)
         serializer.save()
- 
+
         data = StudentProfileSerializer(profile, context={'request': request}).data
         curriculum_courses = profile.student_group.courses.all() if profile.student_group else Course.objects.none()
         data['enrolled_subjects'] = CourseSerializer(curriculum_courses, many=True).data
         return Response(data)
 
 
-def generate_lecturer_id():
-    import datetime
-    year = datetime.datetime.now().year
-    prefix = f"LEC-{year}-"
-    # Find all lecturers whose lecturer_id starts with prefix
-    lecturers_list = Lecturer.objects.filter(lecturer_id__startswith=prefix)
-    max_num = 0
-    for lec in lecturers_list:
-        if lec.lecturer_id:
-            try:
-                parts = lec.lecturer_id.split('-')
-                if len(parts) == 3:
-                    num = int(parts[2])
-                    if num > max_num:
-                        max_num = num
-            except (ValueError, IndexError):
-                pass
-    return f"{prefix}{max_num + 1:03d}"
-
-
-def generate_random_password():
-    import secrets
-    chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*"
-    return "".join(secrets.choice(chars) for _ in range(10))
-
+# ============================================================
+# Admin — single create (Lecturer / Student)
+# ============================================================
 
 class AdminLecturerCreateView(APIView):
     permission_classes = [IsAdminRole]
 
     @transaction.atomic
     def post(self, request):
-        from django.db import transaction
-        from .models import UserProfile
         name = request.data.get('name', '').strip()
         email = request.data.get('email', '').strip()
         department = request.data.get('department', '').strip()
@@ -616,22 +690,18 @@ class AdminLecturerCreateView(APIView):
         if not name or not email:
             return Response({'detail': 'Name and Email are required fields.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Check unique email
         if Lecturer.objects.filter(email=email).exists():
             return Response({'detail': 'Lecturer with this email already exists.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Handle lecturer ID
         if not lecturer_id:
             lecturer_id = generate_lecturer_id()
         elif Lecturer.objects.filter(lecturer_id=lecturer_id).exists():
             return Response({'detail': 'Lecturer ID must be unique.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Handle password
         raw_password = password
         if not raw_password:
             raw_password = generate_random_password()
 
-        # Create Lecturer
         lecturer = Lecturer.objects.create(
             lecturer_id=lecturer_id,
             name=name,
@@ -640,7 +710,6 @@ class AdminLecturerCreateView(APIView):
             must_change_password=True
         )
 
-        # Create User
         parts = [part for part in name.split() if part]
         first_name = parts[0] if parts else ''
         last_name = ' '.join(parts[1:]) if len(parts) > 1 else ''
@@ -658,7 +727,6 @@ class AdminLecturerCreateView(APIView):
         user.set_password(raw_password)
         user.save()
 
-        # Create UserProfile
         UserProfile.objects.create(
             user=user,
             role='LECTURER',
@@ -685,8 +753,6 @@ class AdminStudentCreateView(APIView):
 
     @transaction.atomic
     def post(self, request):
-        from django.db import transaction
-        from .models import UserProfile
         registration_number = request.data.get('registration_number', '').strip()
         name = request.data.get('name', '').strip()
         email = request.data.get('email', '').strip()
@@ -697,14 +763,11 @@ class AdminStudentCreateView(APIView):
         if not registration_number or not name:
             return Response({'detail': 'Registration Number and Name are required fields.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Check unique username/reg_number
         if User.objects.filter(username=registration_number).exists():
             return Response({'detail': 'A student account with this registration number/username already exists.'}, status=status.HTTP_400_BAD_REQUEST)
         if UserProfile.objects.filter(registration_number=registration_number).exists():
             return Response({'detail': 'Registration number is already in use.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Get group
-        student_group = None
         if not student_group_id:
             return Response({'detail': 'Student Group is required — it determines which subjects the student is enrolled in.'}, status=status.HTTP_400_BAD_REQUEST)
         try:
@@ -712,12 +775,10 @@ class AdminStudentCreateView(APIView):
         except StudentGroup.DoesNotExist:
             return Response({'detail': 'Invalid Student Group selected.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Handle password
         raw_password = password
         if not raw_password:
             raw_password = generate_random_password()
 
-        # Create User
         parts = [part for part in name.split() if part]
         first_name = parts[0] if parts else ''
         last_name = ' '.join(parts[1:]) if len(parts) > 1 else ''
@@ -731,7 +792,6 @@ class AdminStudentCreateView(APIView):
         user.set_password(raw_password)
         user.save()
 
-        # Create UserProfile
         UserProfile.objects.create(
             user=user,
             role='STUDENT',
@@ -741,8 +801,7 @@ class AdminStudentCreateView(APIView):
             must_change_password=True
         )
 
-        send_credentials_email(name, email, registration_number, raw_password, 'Student')   # ADD THIS LINE ONLY
-
+        send_credentials_email(name, email, registration_number, raw_password, 'Student')
 
         return Response({
             'id': user.id,
@@ -757,19 +816,15 @@ class AdminStudentCreateView(APIView):
         }, status=status.HTTP_201_CREATED)
 
 
-# Add these imports near the top of views.py, alongside your other imports:
-
-
+# ============================================================
+# Admin — bulk upload (Student / Lecturer)
+# ============================================================
 
 class AdminBulkStudentUploadView(APIView):
     """
     POST /api/admin/students/bulk-upload/
-    Accepts a CSV file (field name: 'file') with columns:
+    Accepts a .csv or .xlsx file (field name: 'file') with columns:
     name, registration_number, email, level, stream, year, subgroup (optional), contact_number (optional)
-
-    Creates one account per row, generates a random password for each,
-    and emails that person their own credentials. One bad row does not
-    affect any other row — each row commits or fails independently.
     """
     permission_classes = [IsAdminRole]
     parser_classes = [MultiPartParser, FormParser]
@@ -777,27 +832,29 @@ class AdminBulkStudentUploadView(APIView):
     def post(self, request):
         file = request.FILES.get('file')
         if not file:
-            return Response({'detail': 'CSV file is required (field name: file).'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'detail': 'A file is required (field name: file).'}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            decoded = file.read().decode('utf-8-sig')
-        except UnicodeDecodeError:
-            return Response({'detail': 'Could not read file. Please upload a UTF-8 encoded CSV.'}, status=status.HTTP_400_BAD_REQUEST)
+            fieldnames, data_rows = parse_uploaded_file(file)
+        except Exception:
+            return Response(
+                {'detail': 'Could not read file. Please upload a .csv or .xlsx file matching the template.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        reader = csv.DictReader(io.StringIO(decoded))
         required_columns = {'name', 'registration_number', 'email', 'level', 'stream', 'year'}
-        available_columns = set(reader.fieldnames or [])
+        available_columns = set(fieldnames)
 
         if not required_columns.issubset(available_columns):
             missing = required_columns - available_columns
             return Response(
-                {'detail': f'CSV is missing required columns: {", ".join(sorted(missing))}'},
+                {'detail': f'File is missing required columns: {", ".join(sorted(missing))}'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         results = []
 
-        for idx, row in enumerate(reader, start=2):  # row 1 is the header
+        for idx, row in enumerate(data_rows, start=2):
             name = (row.get('name') or '').strip()
             registration_number = (row.get('registration_number') or '').strip()
             email = (row.get('email') or '').strip()
@@ -868,7 +925,7 @@ class AdminBulkStudentUploadView(APIView):
 class AdminBulkLecturerUploadView(APIView):
     """
     POST /api/admin/lecturers/bulk-upload/
-    Accepts a CSV file (field name: 'file') with columns:
+    Accepts a .csv or .xlsx file (field name: 'file') with columns:
     name, email, department (optional), lecturer_id (optional — auto-generated if blank)
     """
     permission_classes = [IsAdminRole]
@@ -877,27 +934,32 @@ class AdminBulkLecturerUploadView(APIView):
     def post(self, request):
         file = request.FILES.get('file')
         if not file:
-            return Response({'detail': 'CSV file is required (field name: file).'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'detail': 'A file is required (field name: file).'}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            decoded = file.read().decode('utf-8-sig')
-        except UnicodeDecodeError:
-            return Response({'detail': 'Could not read file. Please upload a UTF-8 encoded CSV.'}, status=status.HTTP_400_BAD_REQUEST)
+            fieldnames, data_rows = parse_uploaded_file(file)
+        except Exception:
+            return Response(
+                {'detail': 'Could not read file. Please upload a .csv or .xlsx file matching the template.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        reader = csv.DictReader(io.StringIO(decoded))
+        # FIXED: this previously incorrectly required registration_number/
+        # level/stream/year (copy-pasted from the Student upload view) —
+        # fields that don't even exist on the Lecturer template.
         required_columns = {'name', 'email'}
-        available_columns = set(reader.fieldnames or [])
+        available_columns = set(fieldnames)
 
         if not required_columns.issubset(available_columns):
             missing = required_columns - available_columns
             return Response(
-                {'detail': f'CSV is missing required columns: {", ".join(sorted(missing))}'},
+                {'detail': f'File is missing required columns: {", ".join(sorted(missing))}'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         results = []
 
-        for idx, row in enumerate(reader, start=2):
+        for idx, row in enumerate(data_rows, start=2):
             name = (row.get('name') or '').strip()
             email = (row.get('email') or '').strip()
             department = (row.get('department') or '').strip()
@@ -960,14 +1022,109 @@ class AdminBulkLecturerUploadView(APIView):
             'results': results,
         }, status=status.HTTP_201_CREATED)
 
+
+# ============================================================
+# Admin — bulk upload templates (.xlsx)
+# ============================================================
+
+def _styled_header(ws, headers, col_widths):
+    """Shared styling so both templates look consistent with the rest of your app's navy theme."""
+    ws.append(headers)
+    header_fill = PatternFill(start_color='0D1B2A', end_color='0D1B2A', fill_type='solid')
+    header_font = Font(color='FFFFFF', bold=True, size=11)
+    thin = Side(style='thin', color='D0DCE8')
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    for cell in ws[1]:
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal='center', vertical='center')
+        cell.border = border
+
+    for i, width in enumerate(col_widths, start=1):
+        ws.column_dimensions[openpyxl.utils.get_column_letter(i)].width = width
+
+    ws.freeze_panes = 'A2'
+    return border
+
+
+class AdminStudentBulkTemplateView(APIView):
+    """GET /api/admin/students/bulk-template/ — downloads a styled .xlsx template."""
+    permission_classes = [IsAdminRole]
+
+    def get(self, request):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = 'Students'
+
+        headers = ['name', 'registration_number', 'email', 'level', 'stream', 'year', 'subgroup', 'contact_number']
+        widths = [22, 20, 26, 8, 12, 8, 10, 16]
+        border = _styled_header(ws, headers, widths)
+
+        sample = ['W.M. Perera', 'SC/2022/1023', 'perera@example.com', 'I', 'physical', '2024', '', '0771234567']
+        ws.append(sample)
+        for cell in ws[2]:
+            cell.font = Font(italic=True, color='94A3B8')
+            cell.border = border
+
+        level_dv = DataValidation(type='list', formula1='"I,II,III"', allow_blank=True,
+                                   errorTitle='Invalid Level', error='Must be I, II, or III')
+        stream_dv = DataValidation(type='list', formula1='"physical,bio,both"', allow_blank=True,
+                                    errorTitle='Invalid Stream', error='Must be physical, bio, or both')
+        ws.add_data_validation(level_dv)
+        ws.add_data_validation(stream_dv)
+        level_dv.add('D2:D500')
+        stream_dv.add('E2:E500')
+
+        buffer = io.BytesIO()
+        wb.save(buffer)
+        buffer.seek(0)
+        response = HttpResponse(
+            buffer,
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        response['Content-Disposition'] = 'attachment; filename="student_bulk_template.xlsx"'
+        return response
+
+
+class AdminLecturerBulkTemplateView(APIView):
+    """GET /api/admin/lecturers/bulk-template/ — downloads a styled .xlsx template."""
+    permission_classes = [IsAdminRole]
+
+    def get(self, request):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = 'Lecturers'
+
+        headers = ['name', 'email', 'department', 'lecturer_id']
+        widths = [24, 26, 22, 18]
+        border = _styled_header(ws, headers, widths)
+
+        sample = ['Dr. A.B. Silva', 'silva@example.com', 'Computer Science', '']
+        ws.append(sample)
+        for cell in ws[2]:
+            cell.font = Font(italic=True, color='94A3B8')
+            cell.border = border
+
+        buffer = io.BytesIO()
+        wb.save(buffer)
+        buffer.seek(0)
+        response = HttpResponse(
+            buffer,
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        response['Content-Disposition'] = 'attachment; filename="lecturer_bulk_template.xlsx"'
+        return response
+
+
+# ============================================================
+# Admin — analytics / availability / auto-scheduler / curriculum
+# ============================================================
+
 class AdminFreeSlotsView(APIView):
     """
     GET /api/admin/analytics/free-slots/?type=venue&id=<id>&semester=<semester>
     GET /api/admin/analytics/free-slots/?type=lecturer&id=<id>&semester=<semester>
-
-    Returns every TimeSlot in the system, each tagged with is_free:
-    True  -> no ScheduleSlot exists for the given venue/lecturer at that time
-    False -> that venue/lecturer is already booked at that time
     """
     permission_classes = [IsAdminRole]
 
@@ -1009,28 +1166,14 @@ class AdminFreeSlotsView(APIView):
         return Response(results)
 
 
-
-
-
-
 class AdminAnalyticsSummaryView(APIView):
-    """
-    GET /api/admin/analytics/summary/?semester=<semester>
-
-    Returns aggregate stats for the Admin analytics dashboard:
-    - room_utilization: % of all timeslots booked, per venue
-    - lecturer_workload: weekly teaching hours + class count, per lecturer
-    - day_distribution: total classes scheduled per weekday
-    - busiest_times: the day+time combinations with the most concurrent bookings
-      across all venues (useful for spotting peak-demand slots)
-    """
+    """GET /api/admin/analytics/summary/?semester=<semester>"""
     permission_classes = [IsAdminRole]
 
     def get(self, request):
         semester = request.query_params.get('semester', 'S2-2026')
         all_timeslots_count = TimeSlot.objects.count() or 1
 
-        # ---- Room utilization ----
         room_utilization = []
         for venue in Venue.objects.all():
             booked = (
@@ -1049,7 +1192,6 @@ class AdminAnalyticsSummaryView(APIView):
             })
         room_utilization.sort(key=lambda item: -item['utilization_pct'])
 
-        # ---- Lecturer workload ----
         lecturer_workload = []
         for lecturer in Lecturer.objects.all():
             slots = list(
@@ -1069,13 +1211,11 @@ class AdminAnalyticsSummaryView(APIView):
             })
         lecturer_workload.sort(key=lambda item: -item['weekly_hours'])
 
-        # ---- Classes per day ----
         day_counts = {day: 0 for day in DAYS}
         for slot in ScheduleSlot.objects.select_related('timeslot').filter(semester=semester):
             day_counts[slot.timeslot.day] = day_counts.get(slot.timeslot.day, 0) + 1
         day_distribution = [{'day': day, 'classes': day_counts.get(day, 0)} for day in DAYS]
 
-        # ---- Busiest time slots (most concurrent bookings across all venues) ----
         time_counter = Counter()
         for slot in ScheduleSlot.objects.select_related('timeslot').filter(semester=semester):
             key = (slot.timeslot.day, slot.timeslot.start_time.strftime('%H:%M'))
@@ -1095,28 +1235,8 @@ class AdminAnalyticsSummaryView(APIView):
         })
 
 
-
-
 class AdminAutoScheduleView(APIView):
-    """
-    POST /api/admin/scheduling/auto-generate/
-
-    Body:
-    {
-        "group_id": 3,
-        "semester": "S2-2026",
-        "requirements": [
-            {"course_id": 5, "lecturer_id": 2, "venue_type": "lecture"},
-            {"course_id": 7, "lecturer_id": 4},
-            ...
-        ]
-    }
-
-    Runs the backtracking solver and returns a PREVIEW only — nothing is
-    saved to the database here. Admin reviews the suggestion in the UI and
-    creates the real ScheduleSlot rows via the normal schedule-slot
-    creation endpoint once they're happy with it.
-    """
+    """POST /api/admin/scheduling/auto-generate/"""
     permission_classes = [IsAdminRole]
 
     def post(self, request):
@@ -1134,8 +1254,6 @@ class AdminAutoScheduleView(APIView):
         except StudentGroup.DoesNotExist:
             return Response({'detail': 'Student group not found.'}, status=status.HTTP_404_NOT_FOUND)
 
-        # Validate + resolve each requirement's course/lecturer up front,
-        # so the solver only ever deals with real objects.
         resolved_requirements = []
         for req in requirements:
             try:
@@ -1199,11 +1317,6 @@ class AdminCurriculumView(APIView):
     """
     GET /api/admin/curriculum/?group_id=<id>  -> {group_id, course_ids: [...]}
     PUT /api/admin/curriculum/                -> body: {group_id, course_ids: [...]}
-
-    Deliberately a separate, small endpoint rather than folding this into
-    StudentGroupViewSet — keeps curriculum editing isolated from whatever
-    your existing Groups.jsx CRUD form already does, so nothing there
-    needs to change.
     """
     permission_classes = [IsAdminRole]
 
@@ -1240,56 +1353,19 @@ class AdminCurriculumView(APIView):
             'course_ids': list(group.courses.values_list('id', flat=True)),
         })
 
-class ChangePasswordView(APIView):
-    permission_classes = [IsAuthenticated]
 
-    def post(self, request):
-        from django.db import transaction
-        from rest_framework.permissions import IsAuthenticated
-        from .models import UserProfile
-        current_password = request.data.get('current_password', '')
-        new_password = request.data.get('new_password', '')
-
-        user = request.user
-        if not user.check_password(current_password):
-            return Response({'detail': 'Incorrect current password.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        if len(new_password) < 8:
-            return Response({'detail': 'New password must be at least 8 characters long.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        with transaction.atomic():
-            user.set_password(new_password)
-            user.save()
-
-            # Set must_change_password to False on UserProfile
-            profile = getattr(user, 'profile', None)
-            if profile:
-                profile.must_change_password = False
-                profile.save(update_fields=['must_change_password'])
-                
-                # Also set must_change_password to False on Lecturer (if applicable)
-                if profile.lecturer:
-                    profile.lecturer.must_change_password = False
-                    profile.lecturer.save(update_fields=['must_change_password'])
-
-        return Response({'detail': 'Password changed successfully.'}, status=status.HTTP_200_OK)
-
-
-
+# ============================================================
+# Admin — admin account management
+# ============================================================
 
 class AdminAccountsView(APIView):
     """
     GET  /api/admin/admins/  -> list every Admin account
     POST /api/admin/admins/  -> create a new Admin account
-
-    POST body: { "name": "...", "email": "...", "password": "" (optional, auto-generated if blank) }
-    Uses email as the username, since Admins don't have a natural ID
-    scheme the way Lecturers/Students do (lecturer_id / registration_number).
     """
     permission_classes = [IsAdminRole]
 
     def get(self, request):
-        from .models import UserProfile
         admins = User.objects.filter(profile__role='ADMIN').order_by('username')
         results = [
             {
@@ -1306,8 +1382,6 @@ class AdminAccountsView(APIView):
 
     @transaction.atomic
     def post(self, request):
-        from .models import UserProfile
-
         name = request.data.get('name', '').strip()
         email = request.data.get('email', '').strip()
         password = request.data.get('password', '').strip()
@@ -1351,8 +1425,6 @@ class AdminMeView(APIView):
     """
     GET   /api/admin/me/  -> current admin's own profile
     PATCH /api/admin/me/  -> update own name, email, avatar (multipart/form-data)
-    Deliberately only ever touches request.user — no id parameter, so an
-    Admin can never edit another Admin's profile through this endpoint.
     """
     permission_classes = [IsAdminRole]
     parser_classes = [MultiPartParser, FormParser]
