@@ -7,19 +7,20 @@ from django.contrib.auth.models import User
 class AdminLoginTest(APITestCase):
 
     def setUp(self):
-        self.user = User.objects.create_user(
+        self.user, created = User.objects.get_or_create(
             username="admin",
-            email="admin@gmail.com",
-            password="Admin123"
+            defaults={"email": "admin@gmail.com"}
         )
+        self.user.set_password("Admin123")
+        self.user.save()
 
     def test_admin_login_success(self):
 
         data = {
-            "email": "admin@gmail.com",
+            "username": "admin",
             "password": "Admin123"
         }
 
-        response = self.client.post("/api/login/", data)
+        response = self.client.post("/api/auth/login/", data)
 
         self.assertEqual(response.status_code, 200)
