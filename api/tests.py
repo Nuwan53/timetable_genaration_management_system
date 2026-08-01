@@ -24,3 +24,14 @@ class AdminLoginTest(APITestCase):
         response = self.client.post("/api/auth/login/", data)
 
         self.assertEqual(response.status_code, 200)
+
+    def test_admin_login_wrong_password(self):
+
+        data = {
+            "username": "admin",
+            "password": "WrongPassword123"
+        }
+
+        response = self.client.post("/api/auth/login/", data)
+
+        self.assertEqual(response.status_code, 400)
