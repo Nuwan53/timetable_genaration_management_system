@@ -442,93 +442,140 @@ class ScheduleSlotViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='export-pdf')
     def export_pdf(self, request):
-            level = request.query_params.get('level', 'I')
-            stream = request.query_params.get('stream', 'physical')
-            semester = request.query_params.get('semester', 'S2-2026')
-    
-            slots = ScheduleSlot.objects.select_related(
-                'timeslot', 'course', 'lecturer', 'venue', 'group'
-            ).filter(
-                group__level=level,
-                group__stream=stream,
-                semester=semester,
-            )
-    
-            grid = {d: {} for d in DAYS}
-            for slot in slots:
-                hour = slot.timeslot.start_time.strftime('%H:%M')
-                grid[slot.timeslot.day][hour] = slot
-    
-            buffer = io.BytesIO()
-            doc = SimpleDocTemplate(buffer, pagesize=landscape(A4),
-                                    leftMargin=1*cm, rightMargin=1*cm,
-                                    topMargin=1.5*cm, bottomMargin=1*cm)
-    
-            styles = getSampleStyleSheet()
-            title_style = ParagraphStyle('title', fontSize=14, fontName='Helvetica-Bold',
-                                         spaceAfter=8, alignment=1)
-            cell_style = ParagraphStyle('cell', fontSize=7, fontName='Helvetica',
-                                        leading=10, alignment=1)
-            header_style = ParagraphStyle('hdr', fontSize=8, fontName='Helvetica-Bold',
-                                          alignment=1, textColor=colors.white)
-    
-            stream_label = 'Physical Science' if stream == 'physical' else 'Bio Science'
-            title = Paragraph(
-                f"Timetable — Level {level} ({stream_label}) — {semester}",
-                title_style
-            )
-    
-            header_row = [Paragraph('Time', header_style)] + \
-                         [Paragraph(d[:3], header_style) for d in DAYS]
-            rows = [header_row]
-    
-            for t in TIMES:
-                row = [Paragraph(t, ParagraphStyle('t', fontSize=8, alignment=1))]
-                for day in DAYS:
-                    slot = grid[day].get(t)
-                    if slot:
-                        txt = (f"<b>{slot.course.code}</b><br/>"
-                               f"{slot.venue.code}<br/>"
-                               f"{slot.lecturer.name.split()[-1]}")
-                        row.append(Paragraph(txt, cell_style))
-                    else:
-                        row.append('')
-                rows.append(row)
-    
-            col_widths = [2*cm] + [5.2*cm]*5
-            tbl = Table(rows, colWidths=col_widths, rowHeights=[0.8*cm] + [1.5*cm]*len(TIMES))
-    
-            navy = colors.HexColor('#0D1B2A')
-            accent = colors.HexColor('#2E86AB')
-    
-            tbl.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), navy),
-                ('BACKGROUND', (0, 0), (0, -1), navy),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-                ('TEXTCOLOR', (0, 0), (0, -1), colors.white),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#D0DCE8')),
-                ('ROWBACKGROUNDS', (1, 1), (-1, -1), [colors.white, colors.HexColor('#F0F4F8')]),
-            ]))
-    
-            for r_idx, t in enumerate(TIMES, start=1):
-                for c_idx, day in enumerate(DAYS, start=1):
-                    if grid[day].get(t):
-                        tbl.setStyle(TableStyle([
-                            ('BACKGROUND', (c_idx, r_idx), (c_idx, r_idx), colors.HexColor('#E8F4F8')),
-                            ('TEXTCOLOR', (c_idx, r_idx), (c_idx, r_idx), colors.HexColor('#0D1B2A')),
-                        ]))
-    
-            story = [title, Spacer(1, 0.3*cm), tbl]
-            doc.build(story)
-    
-            buffer.seek(0)
-            filename = f"timetable_level{level}_{stream}_{semester}.pdf"
-            response = HttpResponse(buffer, content_type='application/pdf')
-            response['Content-Disposition'] = f'attachment; filename="{filename}"'
-            return response
+        level = request.query_params.get('level', 'I')
+        stream = request.query_params.get('stream', 'physical')
+        semester = request.query_params.get('semester', 'S2-2026')
+ 
+        slots = ScheduleSlot.objects.select_related(
+            'timeslot', 'course', 'lecturer', 'venue', 'group'
+        ).filter(
+            group__level=level,
+            group__stream=stream,
+            semester=semester,
+        )
+ 
+        grid = {d: {} for d in DAYS}
+        for slot in slots:
+            hour = slot.timeslot.start_time.strftime('%H:%M')
+            grid[slot.timeslot.day][hour] = slot
+ 
+        # ---- Colour palette matching the web app's navy + brass identity ----
+        navy = colors.HexColor('#0D1B2A')
+        navy_soft = colors.HexColor('#16293F')
+        brass = colors.HexColor('#C6963C')
+        brass_light = colors.HexColor('#FBF3E3')   # tint used behind filled cells
+        border_grey = colors.HexColor('#D0DCE8')
+        text_muted = colors.HexColor('#64748B')
+        text_dark = colors.HexColor('#0F172A')
+ 
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(
+            buffer, pagesize=landscape(A4),
+            leftMargin=1.2 * cm, rightMargin=1.2 * cm,
+            topMargin=1.4 * cm, bottomMargin=1.6 * cm,
+        )
+ 
+        # ---- Header block (letterhead-style) ----
+        eyebrow_style = ParagraphStyle(
+            'eyebrow', fontSize=9, fontName='Helvetica-Bold', alignment=1,
+            textColor=brass, spaceAfter=2, tracking=1,
+        )
+        title_style = ParagraphStyle(
+            'title', fontSize=18, fontName='Helvetica-Bold', alignment=1,
+            textColor=navy, spaceAfter=2,
+        )
+        subtitle_style = ParagraphStyle(
+            'subtitle', fontSize=10, fontName='Helvetica', alignment=1,
+            textColor=text_muted, spaceAfter=10,
+        )
+ 
+        stream_label = 'Physical Science' if stream == 'physical' else 'Bio Science'
+ 
+        eyebrow = Paragraph('FACULTY OF SCIENCE &nbsp;·&nbsp; UNIVERSITY OF RUHUNA', eyebrow_style)
+        title = Paragraph(f"Level {level} Timetable — {stream_label}", title_style)
+        subtitle = Paragraph(f"Semester {semester}", subtitle_style)
+ 
+        # ---- Table ----
+        header_style = ParagraphStyle('hdr', fontSize=9, fontName='Helvetica-Bold',
+                                      alignment=1, textColor=colors.white)
+        time_style = ParagraphStyle('t', fontSize=8.5, fontName='Helvetica-Bold',
+                                    alignment=1, textColor=colors.white)
+        course_style = ParagraphStyle('course', fontSize=8.5, fontName='Helvetica-Bold',
+                                      alignment=1, textColor=navy, leading=11)
+        venue_style = ParagraphStyle('venue', fontSize=7.5, fontName='Helvetica',
+                                     alignment=1, textColor=brass, leading=10)
+        lecturer_style = ParagraphStyle('lect', fontSize=7, fontName='Helvetica-Oblique',
+                                        alignment=1, textColor=text_muted, leading=9)
+ 
+        header_row = [Paragraph('Time', header_style)] + \
+                     [Paragraph(d, header_style) for d in DAYS]
+        rows = [header_row]
+ 
+        for t in TIMES:
+            row = [Paragraph(t, time_style)]
+            for day in DAYS:
+                slot = grid[day].get(t)
+                if slot:
+                    cell_content = [
+                        Paragraph(slot.course.code, course_style),
+                        Paragraph(slot.venue.code, venue_style),
+                        Paragraph(slot.lecturer.name, lecturer_style),
+                    ]
+                    row.append(cell_content)
+                else:
+                    row.append('')
+            rows.append(row)
+ 
+        col_widths = [2.1 * cm] + [5.14 * cm] * 5
+        tbl = Table(rows, colWidths=col_widths, rowHeights=[0.9 * cm] + [1.55 * cm] * len(TIMES))
+ 
+        table_style = [
+            ('BACKGROUND', (0, 0), (-1, 0), navy),
+            ('BACKGROUND', (0, 1), (0, -1), navy_soft),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('GRID', (0, 0), (-1, -1), 0.5, border_grey),
+            ('LINEBELOW', (0, 0), (-1, 0), 1.2, brass),
+            ('TOPPADDING', (0, 0), (-1, -1), 5),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+            ('ROWBACKGROUNDS', (1, 1), (-1, -1), [colors.white, colors.HexColor('#F7F9FC')]),
+        ]
+        tbl.setStyle(TableStyle(table_style))
+ 
+        # Tint filled cells with the brass-adjacent colour and a brass left-edge accent
+        for r_idx, t in enumerate(TIMES, start=1):
+            for c_idx, day in enumerate(DAYS, start=1):
+                if grid[day].get(t):
+                    tbl.setStyle(TableStyle([
+                        ('BACKGROUND', (c_idx, r_idx), (c_idx, r_idx), brass_light),
+                        ('LINEBEFORE', (c_idx, r_idx), (c_idx, r_idx), 2, brass),
+                    ]))
+ 
+        # ---- Footer (drawn on every page via canvas callback) ----
+        generated_at = datetime.datetime.now().strftime('%d %b %Y, %H:%M')
+ 
+        def draw_footer(canvas, doc_):
+            canvas.saveState()
+            canvas.setStrokeColor(border_grey)
+            canvas.setLineWidth(0.5)
+            canvas.line(1.2 * cm, 1.15 * cm, landscape(A4)[0] - 1.2 * cm, 1.15 * cm)
+ 
+            canvas.setFont('Helvetica', 7.5)
+            canvas.setFillColor(text_muted)
+            canvas.drawString(1.2 * cm, 0.75 * cm,
+                               f"Generated by Faculty Timetable Management System — {generated_at}")
+            canvas.drawRightString(landscape(A4)[0] - 1.2 * cm, 0.75 * cm,
+                                    f"Page {doc_.page}")
+            canvas.restoreState()
+ 
+        story = [eyebrow, title, subtitle, Spacer(1, 0.2 * cm), tbl]
+        doc.build(story, onFirstPage=draw_footer, onLaterPages=draw_footer)
+ 
+        buffer.seek(0)
+        filename = f"timetable_level{level}_{stream}_{semester}.pdf"
+        response = HttpResponse(buffer, content_type='application/pdf')
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response
 
 class LecturerScheduleViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = ScheduleSlotReadSerializer
