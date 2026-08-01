@@ -5,7 +5,7 @@ from django.db import models
 class Course(models.Model):
     code = models.CharField(max_length=20, unique=True)
     name = models.CharField(max_length=100)
-    credits = models.PositiveSmallIntegerField(default=3)
+    credits = models.DecimalField(max_digits=4, decimal_places=2, default=3)
 
     def __str__(self):
         return f"{self.code} — {self.name}"
