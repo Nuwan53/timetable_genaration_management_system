@@ -1168,10 +1168,20 @@ class AdminLecturerBulkTemplateView(APIView):
 # Admin — analytics / availability / auto-scheduler / curriculum
 # ============================================================
 
+# Replace your existing AdminFreeSlotsView with this version.
+
 class AdminFreeSlotsView(APIView):
     """
     GET /api/admin/analytics/free-slots/?type=venue&id=<id>&semester=<semester>
     GET /api/admin/analytics/free-slots/?type=lecturer&id=<id>&semester=<semester>
+
+    Returns every TimeSlot in the system, each tagged with is_free.
+    For booked slots, also returns `occupants` — who/what is actually
+    using that slot, so the frontend can show it on hover:
+      - venue mode:    course, lecturer name, group(s) in that room
+      - lecturer mode:  course, venue code, group(s) that lecturer is teaching
+    A list rather than a single object, since a joint/combined class can
+    have multiple student groups sharing the same slot.
     """
     permission_classes = [IsAdminRole]
 
@@ -1188,7 +1198,7 @@ class AdminFreeSlotsView(APIView):
 
         all_slots = TimeSlot.objects.all().order_by('day', 'start_time')
 
-        schedule_qs = ScheduleSlot.objects.all()
+        schedule_qs = ScheduleSlot.objects.select_related('course', 'lecturer', 'venue', 'group').all()
         if target_type == 'lecturer':
             schedule_qs = schedule_qs.filter(lecturer_id=target_id)
         else:
@@ -1197,7 +1207,20 @@ class AdminFreeSlotsView(APIView):
         if semester:
             schedule_qs = schedule_qs.filter(semester=semester)
 
-        occupied_timeslot_ids = set(schedule_qs.values_list('timeslot_id', flat=True))
+        # Build timeslot_id -> list of occupant dicts
+        occupant_map = {}
+        for row in schedule_qs:
+            occupant_info = {
+                'course_code': row.course.code,
+                'course_name': row.course.name,
+                'group_display': str(row.group),
+            }
+            if target_type == 'venue':
+                occupant_info['lecturer_name'] = row.lecturer.name
+            else:
+                occupant_info['venue_code'] = row.venue.code
+
+            occupant_map.setdefault(row.timeslot_id, []).append(occupant_info)
 
         results = [
             {
@@ -1205,7 +1228,8 @@ class AdminFreeSlotsView(APIView):
                 'day': slot.day,
                 'start_time': slot.start_time.strftime('%H:%M'),
                 'end_time': slot.end_time.strftime('%H:%M'),
-                'is_free': slot.id not in occupied_timeslot_ids,
+                'is_free': slot.id not in occupant_map,
+                'occupants': occupant_map.get(slot.id, []),
             }
             for slot in all_slots
         ]
