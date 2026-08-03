@@ -99,22 +99,22 @@ export default function LecturerDashboard() {
       .sort((a, b) => a.timeslot.start_time.localeCompare(b.timeslot.start_time));
   }, [items]);
 
-  const conflicts = useMemo(() => {
-    const seen = new Map();
-    const results = [];
+  // const conflicts = useMemo(() => {
+  //   const seen = new Map();
+  //   const results = [];
 
-    items.forEach((slot) => {
-      const key = `${slot.timeslot.day}-${slot.timeslot.start_time}`;
-      const previous = seen.get(key);
-      if (previous) {
-        results.push({ key, first: previous, second: slot });
-      } else {
-        seen.set(key, slot);
-      }
-    });
+  //   items.forEach((slot) => {
+  //     const key = `${slot.timeslot.day}-${slot.timeslot.start_time}`;
+  //     const previous = seen.get(key);
+  //     if (previous) {
+  //       results.push({ key, first: previous, second: slot });
+  //     } else {
+  //       seen.set(key, slot);
+  //     }
+  //   });
 
-    return results;
-  }, [items]);
+  //   return results;
+  // }, [items]);
 
   const stats = useMemo(() => {
     const teachingMinutes = items.reduce((total, slot) => {
@@ -282,7 +282,7 @@ export default function LecturerDashboard() {
             </div>
           </div>
 
-          {conflicts.length > 0 && (
+          {/* {conflicts.length > 0 && (
             <div className="conflict-list">
               <h4>Conflict warning</h4>
               <ul>
@@ -291,7 +291,7 @@ export default function LecturerDashboard() {
                 ))}
               </ul>
             </div>
-          )}
+          )} */}
         </>
       )}
 
