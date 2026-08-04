@@ -22,7 +22,7 @@ async function downloadTemplate(mode) {
     window.URL.revokeObjectURL(url);
   // eslint-disable-next-line no-unused-vars
   } catch (error) {
-    toast.error('Failed to download template');
+    toast.error('Unable to download template');
   }
 }
 
@@ -40,7 +40,7 @@ export default function BulkUpload() {
 
   const handleUpload = async () => {
     if (!file) {
-      toast.error('Please choose a file first');
+      toast.error('Please select a file');
       return;
     }
 
@@ -55,12 +55,12 @@ export default function BulkUpload() {
       const { data } = await api.post(endpoint, payload);
       setResult(data);
       if (data.failed_count === 0) {
-        toast.success(`All ${data.success_count} accounts created and emailed successfully`);
+        toast.success(`${data.success_count} accounts added and credentials emailed successfully`);
       } else {
         toast.error(`${data.success_count} succeeded, ${data.failed_count} failed — see details below`);
       }
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Bulk upload failed');
+      toast.error(error.response?.data?.detail || error.response?.data?.message || 'Unable to process bulk upload');
     } finally {
       setUploading(false);
     }
