@@ -123,6 +123,12 @@ class ScheduleSlotWriteSerializer(serializers.ModelSerializer):
 
         return data
 
+    def create(self, validated_data):
+        # New slots ALWAYS start unpublished, regardless of what the
+        # client sends — the only way to become visible to
+        # students/lecturers is via the explicit Publish action.
+        validated_data['is_published'] = False
+        return super().create(validated_data)
 
 class AuthUserSerializer(serializers.Serializer):
     id = serializers.IntegerField()
