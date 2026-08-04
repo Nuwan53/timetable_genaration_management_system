@@ -151,7 +151,7 @@ def get_student_profile(request):
 
 
 def build_student_dashboard(profile, request, semester='S2-2026'):
-    slots = ScheduleSlot.objects.select_related('timeslot', 'course', 'lecturer', 'venue', 'group').filter(group=profile.student_group)
+    slots = ScheduleSlot.objects.select_related('timeslot', 'course', 'lecturer', 'venue', 'group').filter(group=profile.student_group, is_published=True)
     if semester:
         slots = slots.filter(semester=semester)
     slots = list(slots)
@@ -347,12 +347,15 @@ class ScheduleSlotViewSet(viewsets.ModelViewSet):
         instance = self.get_object()
         old_timeslot_id = instance.timeslot_id
         old_venue_id = instance.venue_id
+        was_published = instance.is_published
 
         updated = serializer.save()
 
         timeslot_changed = updated.timeslot_id != old_timeslot_id
         venue_changed = updated.venue_id != old_venue_id
 
+        if not was_published:
+            return
         if not (timeslot_changed or venue_changed):
             return  # nothing schedule-relevant changed, skip notifications
 
@@ -400,44 +403,45 @@ class ScheduleSlotViewSet(viewsets.ModelViewSet):
         )
 
     def perform_destroy(self, instance):
-        title = f"Cancelled: {instance.course.code}"
-        message = (
-            f"Your class on {instance.timeslot.day} "
-            f"{instance.timeslot.start_time.strftime('%H:%M')} at {instance.venue.code} "
-            f"has been cancelled."
-        )
-
-        LecturerNotification.objects.create(
-            lecturer=instance.lecturer,
-            title=title,
-            message=message,
-            notification_type='CANCEL',
-        )
-        StudentNotification.objects.create(
-            student_group=instance.group,
-            title=title,
-            message=message,
-            notification_type='CANCEL',
-        )
-
-        student_emails = (
-            User.objects
-            .filter(profile__role='STUDENT', profile__student_group=instance.group)
-            .exclude(email='')
-            .values_list('email', flat=True)
-        )
-
-        send_class_change_email(
-            notification_type='CANCEL',
-            course_code=instance.course.code,
-            venue_code=instance.venue.code,
-            day=instance.timeslot.day,
-            start_time=instance.timeslot.start_time.strftime('%H:%M'),
-            end_time=instance.timeslot.end_time.strftime('%H:%M'),
-            lecturer_email=instance.lecturer.email,
-            student_emails=student_emails,
-        )
-
+        if instance.is_published:
+            title = f"Cancelled: {instance.course.code}"
+            message = (
+                f"Your class on {instance.timeslot.day} "
+                f"{instance.timeslot.start_time.strftime('%H:%M')} at {instance.venue.code} "
+                f"has been cancelled."
+            )
+ 
+            LecturerNotification.objects.create(
+                lecturer=instance.lecturer,
+                title=title,
+                message=message,
+                notification_type='CANCEL',
+            )
+            StudentNotification.objects.create(
+                student_group=instance.group,
+                title=title,
+                message=message,
+                notification_type='CANCEL',
+            )
+ 
+            student_emails = (
+                User.objects
+                .filter(profile__role='STUDENT', profile__student_group=instance.group)
+                .exclude(email='')
+                .values_list('email', flat=True)
+            )
+ 
+            send_class_change_email(
+                notification_type='CANCEL',
+                course_code=instance.course.code,
+                venue_code=instance.venue.code,
+                day=instance.timeslot.day,
+                start_time=instance.timeslot.start_time.strftime('%H:%M'),
+                end_time=instance.timeslot.end_time.strftime('%H:%M'),
+                lecturer_email=instance.lecturer.email,
+                student_emails=student_emails,
+            )
+ 
         instance.delete()
 
     @action(detail=False, methods=['get'], url_path='export-pdf')
@@ -585,8 +589,7 @@ class LecturerScheduleViewSet(viewsets.ReadOnlyModelViewSet):
         lecturer = profile.lecturer if profile else None
         if lecturer is None:
             return ScheduleSlot.objects.none()
-        return ScheduleSlot.objects.select_related('timeslot', 'course', 'lecturer', 'venue', 'group').filter(lecturer=lecturer)
-
+        return ScheduleSlot.objects.select_related('timeslot', 'course', 'lecturer', 'venue', 'group').filter(lecturer=lecturer, is_published=True)
 
 class LecturerRequestViewSet(viewsets.ModelViewSet):
     serializer_class = LecturerRequestSerializer
@@ -1526,3 +1529,40 @@ class AdminMeView(APIView):
                 profile.save(update_fields=['avatar'])
 
         return Response(serialize_user(user, request=request))
+
+
+class AdminTimetablePublishView(APIView):
+    """
+    POST /api/admin/timetable/publish/
+    Body: { "level": "I", "stream": "physical", "semester": "S2-2026", "action": "publish" | "unpublish" }
+ 
+    Bulk-flips is_published for every ScheduleSlot matching the given
+    level/stream/semester — this is the moment a draft timetable becomes
+    visible to Student/Lecturer dashboards (or gets pulled back to draft).
+    """
+    permission_classes = [IsAdminRole]
+ 
+    def post(self, request):
+        level = request.data.get('level')
+        stream = request.data.get('stream')
+        semester = request.data.get('semester', 'S2-2026')
+        action = request.data.get('action', 'publish')
+ 
+        if not level or not stream:
+            return Response({'detail': 'level and stream are required.'}, status=status.HTTP_400_BAD_REQUEST)
+ 
+        if action not in ('publish', 'unpublish'):
+            return Response({'detail': 'action must be "publish" or "unpublish".'}, status=status.HTTP_400_BAD_REQUEST)
+ 
+        publish_state = action == 'publish'
+ 
+        qs = ScheduleSlot.objects.filter(group__level=level, group__stream=stream, semester=semester)
+        updated_count = qs.update(is_published=publish_state)
+ 
+        return Response({
+            'level': level,
+            'stream': stream,
+            'semester': semester,
+            'action': action,
+            'updated_count': updated_count,
+        })
