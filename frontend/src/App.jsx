@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom';
+import { useState, useEffect } from 'react';
 import { Toaster } from 'react-hot-toast';
-import { LayoutDashboard, BookOpen, Users, MapPin, Clock, CalendarDays, LayoutGrid, LogOut, Search, Bell, ChevronRight, GraduationCap, CalendarSearch, UploadCloud, Wand2 , ShieldPlus, BookMarked, Sun, Moon} from 'lucide-react';
+import { LayoutDashboard, BookOpen, Users, MapPin, Clock, CalendarDays, LayoutGrid, LogOut, Search, Bell, ChevronRight, GraduationCap, CalendarSearch, UploadCloud, Wand2 , ShieldPlus, BookMarked, Sun, Moon, Menu} from 'lucide-react';
 import './index.css';
 
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -56,6 +57,32 @@ function AppShell() {
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const { pathname } = useLocation();
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
+  useEffect(() => {
+    setIsSidebarOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') setIsSidebarOpen(false);
+    };
+    const handleResize = () => {
+      if (window.innerWidth > 860) setIsSidebarOpen(false);
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('resize', handleResize);
+
+    document.body.style.overflow = isSidebarOpen ? 'hidden' : '';
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('resize', handleResize);
+      document.body.style.overflow = '';
+    };
+  }, [isSidebarOpen]);
+
   const visibleNav = nav.filter(n => n.roles.includes(user.role));
   const HomePage = user.role === 'ADMIN' ? Dashboard : user.role === 'LECTURER' ? LecturerDashboard : StudentDashboard;
   const currentTitle = pageTitle[pathname] || 'Dashboard';
@@ -63,7 +90,12 @@ function AppShell() {
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
+      <div 
+        className={`sidebar-backdrop ${isSidebarOpen ? 'open' : ''}`}
+        onClick={() => setIsSidebarOpen(false)}
+        aria-hidden="true"
+      />
+      <aside id="main-sidebar" className={`sidebar ${isSidebarOpen ? 'mobile-open' : ''}`}>
         <div className="sidebar-brand">
           <div className="sidebar-brand-mark">FS</div>
           <div>
@@ -100,6 +132,16 @@ function AppShell() {
       <div className="main">
         <div className="topbar">
           <div className="topbar-left">
+            <button
+              className="icon-btn mobile-menu-btn"
+              type="button"
+              onClick={() => setIsSidebarOpen((open) => !open)}
+              aria-expanded={isSidebarOpen}
+              aria-controls="main-sidebar"
+              aria-label={isSidebarOpen ? 'Close sidebar' : 'Open sidebar'}
+            >
+              <Menu size={20} aria-hidden="true" />
+            </button>
             <div className="topbar-title">Timetable Manager</div>
             <div className="topbar-search">
               <Search size={16} />
