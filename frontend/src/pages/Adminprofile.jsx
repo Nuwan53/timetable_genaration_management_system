@@ -48,9 +48,9 @@ export default function AdminProfile() {
       const { data } = await api.patch('/admin/me/', payload);
       updateUser((current) => ({ ...current, ...data }));
       setAvatarFile(null);
-      toast.success('Profile updated');
+      toast.success('Profile updated successfully');
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Could not update profile');
+      toast.error(error.response?.data?.detail || error.response?.data?.message || 'Unable to update profile');
     } finally {
       setSaving(false);
     }
@@ -59,23 +59,23 @@ export default function AdminProfile() {
   const changePassword = async (event) => {
     event.preventDefault();
     if (newPw.length < 8) {
-      toast.error('New password must be at least 8 characters long');
+      toast.error('Password must be at least 8 characters');
       return;
     }
     if (newPw !== confirmPw) {
-      toast.error('New passwords do not match');
+      toast.error('Passwords do not match');
       return;
     }
 
     setChangingPw(true);
     try {
       await api.post('/auth/change-password/', { current_password: currentPw, new_password: newPw });
-      toast.success('Password changed');
+      toast.success('Password changed successfully');
       setCurrentPw('');
       setNewPw('');
       setConfirmPw('');
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Could not change password');
+      toast.error(error.response?.data?.detail || error.response?.data?.message || 'Unable to change password');
     } finally {
       setChangingPw(false);
     }
