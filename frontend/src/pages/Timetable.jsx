@@ -1,10 +1,18 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { slots, courses, lecturers, venues, groups, timeslots } from '../api';
 // eslint-disable-next-line no-unused-vars
-import { Download, Plus, X } from 'lucide-react';
+import { Download, Plus, X, Upload as UploadIcon, EyeOff } from 'lucide-react';
 import Modal from '../components/Modal';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
+import axios from 'axios';
+
+const api = axios.create({ baseURL: 'http://localhost:8000/api' });
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('tms_token');
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
 
 const DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday'];
 
@@ -18,6 +26,7 @@ export default function Timetable() {
   const [filterStream, setFS]     = useState('physical');
   const [filterSem, setFSem]      = useState('S2-2026');
   const [loading, setLoading]     = useState(true);
+  const [publishing, setPublishing] = useState(false);
 
   // Form data
   const [showForm, setShowForm]   = useState(false);
@@ -62,34 +71,8 @@ export default function Timetable() {
     grid[day][time] = slot;
   });
 
-  // ---- Curriculum-filtered course list ----
-  // Union of curriculum courses across whichever groups are CURRENTLY
-  // ticked in the modal. If a group has no `courses` data at all (e.g.
-  // curriculum was never set up for it, or the serializer doesn't expose
-  // the field yet), we fall back to showing every course instead of
-  // silently offering an empty, confusing dropdown.
-  const { filteredCourses, curriculumAvailable } = useMemo(() => {
-    const selectedGroupIds = form.selectedGroups || [];
-    const tickedGroups = allGroups.filter(g => selectedGroupIds.includes(g.id));
-
-    const anyGroupHasCurriculumData = tickedGroups.some(
-      g => Array.isArray(g.courses)
-    );
-
-    if (!anyGroupHasCurriculumData || tickedGroups.length === 0) {
-      return { filteredCourses: allCourses, curriculumAvailable: false };
-    }
-
-    const idSet = new Set();
-    tickedGroups.forEach(g => (g.courses || []).forEach(id => idSet.add(id)));
-
-    const narrowed = allCourses.filter(c => idSet.has(c.id));
-    // If the curriculum for the ticked groups is genuinely empty, fall
-    // back rather than showing a dead-end empty dropdown.
-    return narrowed.length > 0
-      ? { filteredCourses: narrowed, curriculumAvailable: true }
-      : { filteredCourses: allCourses, curriculumAvailable: false };
-  }, [allGroups, allCourses, form.selectedGroups]);
+  const draftCount = useMemo(() => slotList.filter(s => !s.is_published).length, [slotList]);
+  const publishedCount = slotList.length - draftCount;
 
   const openAdd = (tsId, day) => {
     if (!isAdmin) return; // safety net — should never be reachable by non-admins anyway
@@ -129,9 +112,6 @@ export default function Timetable() {
 
     const targets = form.selectedGroups;
 
-    // allSettled — unlike Promise.all, this lets every group's create
-    // attempt run independently. A conflict on one group no longer hides
-    // the fact that the others already succeeded.
     const outcomes = await Promise.allSettled(
       targets.map(groupId =>
         slots.create({ ...form, group: groupId, selectedGroups: undefined })
@@ -158,13 +138,11 @@ export default function Timetable() {
       }
     });
 
-    // Always refresh — whatever DID save is now visible immediately,
-    // instead of silently sitting in the DB until the next page load.
     loadSlots();
     setSaving(false);
 
     if (failedGroupIds.length === 0) {
-      toast.success(`Slot added for ${succeededGroupIds.length} group(s)!`);
+      toast.success(`Slot added for ${succeededGroupIds.length} group(s) — still in draft, not visible to students/lecturers yet`);
       setShowForm(false);
       return;
     }
@@ -173,11 +151,32 @@ export default function Timetable() {
       toast.success(`Saved for ${succeededGroupIds.length} group(s) — ${failedGroupIds.length} had conflicts`);
     }
 
-    // Re-target the form to ONLY the groups that actually failed, so a
-    // retry can't recreate duplicates for groups that already succeeded —
-    // this is what was causing the "conflicts never end" loop.
     setForm((current) => ({ ...current, selectedGroups: failedGroupIds }));
     setConflicts([...new Set(collectedConflicts)]);
+  };
+
+  const handlePublish = async (action) => {
+    const isPublish = action === 'publish';
+    if (!isPublish && !window.confirm('Unpublish this timetable? Students and lecturers will no longer see it until you publish again.')) {
+      return;
+    }
+
+    setPublishing(true);
+    try {
+      const { data } = await api.post('/admin/timetable/publish/', {
+        level: filterLevel, stream: filterStream, semester: filterSem, action,
+      });
+      toast.success(
+        isPublish
+          ? `${data.updated_count} classes published — now visible to students and lecturers`
+          : `${data.updated_count} classes moved back to draft`
+      );
+      loadSlots();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || `Failed to ${action}`);
+    } finally {
+      setPublishing(false);
+    }
   };
 
   const handlePdf = async () => {
@@ -219,6 +218,30 @@ export default function Timetable() {
             <label>Semester</label>
             <input value={filterSem} onChange={e=>setFSem(e.target.value)} style={{width:110}}/>
           </div>
+
+          {isAdmin && (
+            <>
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={() => handlePublish('publish')}
+                disabled={publishing || draftCount === 0}
+                style={{ marginTop: 16 }}
+                title={draftCount === 0 ? 'Nothing in draft to publish' : `Publish ${draftCount} draft classes`}
+              >
+                <UploadIcon size={14}/> Publish {draftCount > 0 ? `(${draftCount})` : ''}
+              </button>
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => handlePublish('unpublish')}
+                disabled={publishing || publishedCount === 0}
+                style={{ marginTop: 16, border: '1px solid var(--border)' }}
+                title={publishedCount === 0 ? 'Nothing published to revert' : 'Revert published classes back to draft'}
+              >
+                <EyeOff size={14}/> Unpublish
+              </button>
+            </>
+          )}
+
           <button className="btn btn-green btn-sm" onClick={handlePdf} style={{marginTop:16}}>
             <Download size={14}/> Export PDF
           </button>
@@ -231,11 +254,19 @@ export default function Timetable() {
           <span className="card-title">
             Level {filterLevel} — {streamLabel} — {filterSem}
           </span>
-          {isAdmin ? (
-            <span style={{fontSize:12,color:'#94a3b8'}}>Click empty cell to add a slot</span>
-          ) : (
-            <span className="badge badge-green">Read only</span>
-          )}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            {isAdmin && draftCount > 0 && (
+              <span className="badge badge-amber">{draftCount} draft</span>
+            )}
+            {isAdmin && publishedCount > 0 && (
+              <span className="badge badge-green">{publishedCount} published</span>
+            )}
+            {isAdmin ? (
+              <span style={{fontSize:12,color:'#94a3b8'}}>Click empty cell to add a slot</span>
+            ) : (
+              <span className="badge badge-green">Read only</span>
+            )}
+          </div>
         </div>
         {loading ? <div className="loading-center"><div className="spinner"/></div> : (
           <div className="tt-grid-wrap">
@@ -254,17 +285,32 @@ export default function Timetable() {
                 )}
                 {uniqueTimes.map(ts => (
                   <tr key={ts.id}>
-                    <td className="time-col">{ts.start_time.slice(0,5)}<br/><span style={{fontSize:9,opacity:.7}}>{ts.end_time.slice(0,5)}</span></td>
+                    <td className="time-col">{ts.start_time.slice(0,5)}<br/><span style={{ fontSize: 9, opacity: .7 }}>{ts.end_time.slice(0,5)}</span></td>
                     {DAYS.map(day => {
                       const tsForDay = allTimeslots.find(t => t.day === day && t.start_time === ts.start_time);
                       const slot = tsForDay ? grid[day][tsForDay.start_time] : null;
+                      const isDraft = slot && isAdmin && !slot.is_published;
                       return (
                         <td
                           key={day}
                           onClick={() => isAdmin && !slot && tsForDay && openAdd(tsForDay.id, day)}
                         >
                           {slot ? (
-                            <div className="slot-cell" style={{ cursor: isAdmin ? 'pointer' : 'default' }}>
+                            <div
+                              className="slot-cell"
+                              style={{
+                                cursor: isAdmin ? 'pointer' : 'default',
+                                ...(isDraft ? {
+                                  background: '#f39c12',
+                                  border: '1.5px dashed #b45309',
+                                } : {}),
+                              }}
+                            >
+                              {isDraft && (
+                                <div style={{ fontSize: 8, fontWeight: 700, letterSpacing: 0.5, opacity: 0.9, marginBottom: 2 }}>
+                                  DRAFT
+                                </div>
+                              )}
                               <div style={{fontWeight:600}}>{slot.course.code}</div>
                               <div style={{opacity:.85}}>{slot.venue.code}</div>
                               <div style={{opacity:.7,fontSize:10}}>{slot.lecturer.name.split(' ').pop()}</div>
@@ -303,6 +349,13 @@ export default function Timetable() {
             </div>
           )}
 
+          <div className="login-note-box" style={{ marginBottom: 16 }}>
+            <div className="login-note" style={{ textAlign: 'left', margin: 0 }}>
+              New slots are saved as <strong>draft</strong> — students and lecturers won't see this
+              until you click <strong>Publish</strong> on the Timetable page.
+            </div>
+          </div>
+
           <div className="form-group"><label>Student Groups (Select Multiple)</label>
             <div style={{border:'1px solid #e2e8f0',borderRadius:'6px',padding:'10px',maxHeight:'200px',overflowY:'auto'}}>
               {allGroups
@@ -331,26 +384,12 @@ export default function Timetable() {
           </div>
 
           <div className="form-group">
-            <label>
-              Course
-              {curriculumAvailable && (
-                <span className="badge badge-green" style={{ marginLeft: 8, fontWeight: 500 }}>
-                  Filtered to selected groups' curriculum
-                </span>
-              )}
-            </label>
+            <label>Course</label>
             <select value={form.course} onChange={e=>setForm({...form,course:e.target.value})}>
               <option value="">— Select course —</option>
-              {filteredCourses.map(c=><option key={c.id} value={c.id}>{c.code} — {c.name}</option>)}
+              {allCourses.map(c=><option key={c.id} value={c.id}>{c.code} — {c.name}</option>)}
             </select>
-            {!curriculumAvailable && (form.selectedGroups?.length ?? 0) > 0 && (
-              <p style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>
-                Showing all courses — set up a curriculum for the selected group(s) on the
-                <strong> Curriculum</strong> page to narrow this list.
-              </p>
-            )}
           </div>
-
           <div className="form-group"><label>Lecturer</label>
             <select value={form.lecturer} onChange={e=>setForm({...form,lecturer:e.target.value})}>
               <option value="">— Select lecturer —</option>
