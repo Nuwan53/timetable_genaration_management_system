@@ -31,7 +31,7 @@ export default function Curriculum() {
         setCoursesList(coursesRes.data);
       // eslint-disable-next-line no-unused-vars
       } catch (error) {
-        toast.error('Failed to load groups/courses');
+        toast.error('Unable to load groups/courses');
       } finally {
         setLoadingOptions(false);
       }
@@ -52,7 +52,7 @@ export default function Curriculum() {
         setSelectedCourseIds(data.course_ids);
       // eslint-disable-next-line no-unused-vars
       } catch (error) {
-        toast.error('Failed to load curriculum for this group');
+        toast.error('Unable to load curriculum');
       } finally {
         setLoadingCurriculum(false);
       }
@@ -68,15 +68,15 @@ export default function Curriculum() {
 
   const handleSave = async () => {
     if (!groupId) {
-      toast.error('Select a student group first');
+      toast.error('Please select a student group');
       return;
     }
     setSaving(true);
     try {
       await api.put('/admin/curriculum/', { group_id: groupId, course_ids: selectedCourseIds });
-      toast.success('Curriculum updated — every student in this group will see it immediately');
+      toast.success('Curriculum updated successfully');
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to save curriculum');
+      toast.error(error.response?.data?.detail || error.response?.data?.message || 'Unable to update curriculum');
     } finally {
       setSaving(false);
     }
