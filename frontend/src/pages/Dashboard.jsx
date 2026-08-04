@@ -30,20 +30,20 @@ export default function Dashboard() {
   const handleApprove = async (id) => {
     try {
       await lecturerApi.requests.approve(id);
-      toast.success('Request approved');
+      toast.success('Request approved successfully');
       loadRequests();
     } catch (err) {
-      toast.error('Failed to approve request');
+      toast.error('Unable to approve request');
     }
   };
 
   const handleReject = async (id) => {
     try {
       await lecturerApi.requests.reject(id);
-      toast.success('Request rejected');
+      toast.success('Request rejected successfully');
       loadRequests();
     } catch (err) {
-      toast.error('Failed to reject request');
+      toast.error('Unable to reject request');
     }
   };
 
