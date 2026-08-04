@@ -35,3 +35,26 @@ class AdminLoginTest(APITestCase):
         response = self.client.post("/api/auth/login/", data)
 
         self.assertEqual(response.status_code, 400)
+
+    def test_admin_login_empty_username(self):
+
+        data = {
+            "username": "",
+            "password": "Admin123"
+        }
+
+        response = self.client.post("/api/auth/login/", data)
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_admin_login_empty_password(self):
+
+        data = {
+            "username": "admin",
+            "password": ""
+        }
+
+        response = self.client.post("/api/auth/login/", data)
+
+        self.assertEqual(response.status_code, 400)
+
