@@ -91,6 +91,7 @@ class ScheduleSlot(models.Model):
     group = models.ForeignKey(StudentGroup, on_delete=models.CASCADE, related_name='schedule_slots')
     semester = models.CharField(max_length=20, default='S2-2026')
     notes = models.CharField(max_length=200, blank=True)
+    is_published = models.BooleanField(default=True)
 
     def __str__(self):
         return f"{self.course.code} | {self.timeslot} | {self.venue.code}"
