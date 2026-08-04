@@ -865,3 +865,62 @@ tr:hover td { background: #eef4fb; }
 .qs-step:last-child .qs-step-body {
   padding-bottom: 4px;
 }
+
+/* ============================================================
+   Free-slot booking tooltip (Admin > Availability)
+   ============================================================ */
+
+.free-slot-wrap {
+  position: relative;
+  display: inline-block;
+  width: 100%;
+}
+
+.free-slot-tooltip {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%) translateY(-6px);
+  background: var(--navy);
+  color: #fff;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 11px;
+  line-height: 1.5;
+  text-align: left;
+  white-space: normal;
+  width: max-content;
+  max-width: 220px;
+  box-shadow: 0 10px 24px rgba(13, 27, 42, 0.28);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  z-index: 30;
+}
+
+.free-slot-tooltip::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border-width: 5px;
+  border-style: solid;
+  border-color: var(--navy) transparent transparent transparent;
+}
+
+.free-slot-wrap:hover .free-slot-tooltip {
+  opacity: 1;
+  transform: translateX(-50%) translateY(-10px);
+}
+
+.free-slot-tooltip-title {
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+
+.free-slot-tooltip-row + .free-slot-tooltip-title {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+}
