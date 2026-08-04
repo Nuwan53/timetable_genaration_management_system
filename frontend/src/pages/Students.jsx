@@ -227,6 +227,7 @@ export default function Students() {
       title="Students"
       api={students}
       fields={fields}
+      filters={[{key: 'student_group', label: 'Group', allLabel: 'All student groups'}]}
       rowRenderer={(item) => (
         <>
           <td>{item.username}</td>

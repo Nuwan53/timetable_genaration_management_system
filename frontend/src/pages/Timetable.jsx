@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import { slots, courses, lecturers, venues, groups, timeslots } from '../api';
 // eslint-disable-next-line no-unused-vars
 import { Download, Plus, X } from 'lucide-react';
+import ConfirmDelete from '../components/ConfirmDelete';
 import Modal from '../components/Modal';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
@@ -20,6 +21,7 @@ export default function Timetable() {
   const [loading, setLoading]     = useState(true);
 
   // Form data
+  const [deletingSlot, setDeletingSlot] = useState(null);
   const [showForm, setShowForm]   = useState(false);
   // eslint-disable-next-line no-unused-vars
   const [clickedSlot, setClicked] = useState(null); // {timeslot_id, day}
@@ -110,12 +112,20 @@ export default function Timetable() {
     setShowForm(true);
   };
 
-  const deleteSlot = async (id, e) => {
-    e.stopPropagation();
-    if (!isAdmin) return;
-    await slots.remove(id);
-    toast.success('Slot removed');
-    loadSlots();
+  const handleConfirmDelete = async () => {
+    if (!isAdmin || !deletingSlot) return;
+    try {
+      await slots.remove(deletingSlot.id);
+      await loadSlots();
+      toast.success('Timetable entry deleted successfully');
+      setDeletingSlot(null);
+    } catch (error) {
+      toast.error(
+        error?.response?.data?.detail ||
+        error?.response?.data?.message ||
+        'Unable to delete timetable entry'
+      );
+    }
   };
 
   const saveSlot = async () => {
@@ -164,7 +174,7 @@ export default function Timetable() {
     setSaving(false);
 
     if (failedGroupIds.length === 0) {
-      toast.success(`Slot added for ${succeededGroupIds.length} group(s)!`);
+      toast.success(`Timetable entry created successfully for ${succeededGroupIds.length} group(s)`);
       setShowForm(false);
       return;
     }
@@ -189,8 +199,8 @@ export default function Timetable() {
       a.download = `timetable_${filterLevel}_${filterStream}.pdf`;
       a.click();
       window.URL.revokeObjectURL(url);
-      toast.success('PDF downloaded!');
-    } catch { toast.error('Export failed'); }
+      toast.success('PDF exported successfully');
+    } catch { toast.error('Unable to export PDF'); }
   };
 
   const streamLabel = filterStream === 'physical' ? 'Physical Science' : 'Bio Science';
@@ -270,7 +280,10 @@ export default function Timetable() {
                               <div style={{opacity:.7,fontSize:10}}>{slot.lecturer.name.split(' ').pop()}</div>
                               {isAdmin && (
                                 <button className="slot-del btn" style={{background:'transparent',padding:0,color:'#fff',fontSize:12}}
-                                  onClick={e => deleteSlot(slot.id, e)}>
+                                  onClick={e => {
+                                    e.stopPropagation();
+                                    setDeletingSlot(slot);
+                                  }}>
                                   <X size={12}/>
                                 </button>
                               )}
@@ -374,6 +387,14 @@ export default function Timetable() {
             </button>
           </div>
         </Modal>
+      )}
+
+      {deletingSlot && (
+        <ConfirmDelete
+          name={`${deletingSlot.course?.code || 'Course'}, ${deletingSlot.group?.display || deletingSlot.group?.name || allGroups.find(g => g.id === (deletingSlot.group?.id || deletingSlot.group))?.display || 'Group'}, ${deletingSlot.timeslot?.day || ''} ${deletingSlot.timeslot?.start_time?.slice(0,5) || ''}`}
+          onConfirm={handleConfirmDelete}
+          onClose={() => setDeletingSlot(null)}
+        />
       )}
     </div>
   );

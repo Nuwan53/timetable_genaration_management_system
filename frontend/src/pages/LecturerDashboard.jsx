@@ -55,7 +55,7 @@ export default function LecturerDashboard() {
       setProfile(profileRes.data);
       setStudentGroups(groupsRes.data);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to load lecturer dashboard');
+      toast.error(error.response?.data?.detail || error.response?.data?.message || 'Unable to load lecturer dashboard');
     } finally {
       setLoading(false);
     }
@@ -135,7 +135,7 @@ export default function LecturerDashboard() {
     event.preventDefault();
 
     if (!availabilityForm.requested_date || !availabilityForm.requested_start || !availabilityForm.requested_end) {
-      toast.error('Please enter date, start time, and end time');
+      toast.error('Please complete all required fields');
       return;
     }
 
@@ -159,11 +159,11 @@ export default function LecturerDashboard() {
       };
 
       await lecturerApi.requests.create(payload);
-      toast.success(`${availabilityForm.request_sub_type === 'leave' ? 'Leave' : 'Availability'} request sent`);
+      toast.success('Request sent successfully');
       setAvailabilityForm({ request_sub_type: 'availability', requested_date: '', requested_start: '', requested_end: '', reason: '', selected_groups: [] });
       loadData();
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Could not submit availability request');
+      toast.error(error.response?.data?.detail || error.response?.data?.message || 'Unable to submit request');
     }
   };
 
@@ -188,11 +188,11 @@ export default function LecturerDashboard() {
       };
 
       await lecturerApi.requests.create(payload);
-      toast.success('Change request sent');
+      toast.success('Request sent successfully');
       setChangeForm({ schedule_slot: '', requested_room: '', requested_day: '', requested_start: '', requested_end: '', reason: '' });
       loadData();
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Could not submit change request');
+      toast.error(error.response?.data?.detail || error.response?.data?.message || 'Unable to submit request');
     }
   };
 
@@ -202,9 +202,9 @@ export default function LecturerDashboard() {
     try {
       const { data } = await lecturerApi.updateMe(profile);
       setProfile(data);
-      toast.success('Profile updated');
+      toast.success('Profile updated successfully');
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Could not update profile');
+      toast.error(error.response?.data?.detail || error.response?.data?.message || 'Unable to update profile');
     }
   };
 

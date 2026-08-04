@@ -78,7 +78,7 @@ export default function StudentDashboard() {
         updateUser((current) => ({ ...current, ...data.profile }));
       } catch (error) {
         if (active) {
-          toast.error(error.response?.data?.detail || 'Failed to load student dashboard');
+          toast.error(error.response?.data?.detail || error.response?.data?.message || 'Unable to load student dashboard');
         }
       } finally {
         if (active) {
@@ -177,11 +177,11 @@ export default function StudentDashboard() {
       setProfileForm(data);
       setAvatarFile(null);
       updateUser((current) => ({ ...current, ...data }));
-      toast.success('Profile updated');
+      toast.success('Profile updated successfully');
     } catch (error) {
       const detail = error.response?.data?.detail;
       const avatarError = error.response?.data?.avatar?.[0];
-      toast.error(detail || avatarError || 'Could not update profile');
+      toast.error(detail || avatarError || 'Unable to update profile');
     } finally {
       setSaving(false);
     }
