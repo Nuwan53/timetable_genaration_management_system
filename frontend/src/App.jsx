@@ -1,9 +1,10 @@
 import { BrowserRouter, Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
-import { LayoutDashboard, BookOpen, Users, MapPin, Clock, CalendarDays, LayoutGrid, LogOut, Search, Bell, ChevronRight, GraduationCap, CalendarSearch, UploadCloud, Wand2 , ShieldPlus, BookMarked} from 'lucide-react';
+import { LayoutDashboard, BookOpen, Users, MapPin, Clock, CalendarDays, LayoutGrid, LogOut, Search, Bell, ChevronRight, GraduationCap, CalendarSearch, UploadCloud, Wand2 , ShieldPlus, BookMarked, Sun, Moon} from 'lucide-react';
 import './index.css';
 
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { ThemeProvider, useTheme } from './context/ThemeContext';
 import ProtectedRoute from './components/ProtectedRoute';
 
 import Login      from './pages/Login';
@@ -53,6 +54,7 @@ const pageTitle = {
 
 function AppShell() {
   const { user, logout } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const { pathname } = useLocation();
   const visibleNav = nav.filter(n => n.roles.includes(user.role));
   const HomePage = user.role === 'ADMIN' ? Dashboard : user.role === 'LECTURER' ? LecturerDashboard : StudentDashboard;
@@ -109,6 +111,14 @@ function AppShell() {
             <button className="topbar-link" type="button">Exam Period</button>
             <button className="topbar-link" type="button">Archives</button>
             <span className="topbar-divider" />
+            <button 
+              className="icon-btn theme-toggle-btn" 
+              type="button" 
+              onClick={toggleTheme} 
+              aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            >
+              {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+            </button>
             <button className="icon-btn" type="button" aria-label="Notifications"><Bell size={16} /></button>
             <div className="topbar-avatar" style={{ overflow: 'hidden' }}>
               {user.avatar_url ? <img src={user.avatar_url} alt="Profile avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : avatarFallback}
@@ -152,21 +162,23 @@ function AppShell() {
 export default function App() {
   return (
     <BrowserRouter>
-      <AuthProvider>
-        <Toaster position="top-right" toastOptions={{ style: { fontSize: 13 } }}/>
-        <Routes>
-          <Route path="/login" element={<Login/>} />
-          <Route path="/change-password" element={<ProtectedRoute><ChangePassword/></ProtectedRoute>} />
-          <Route
-            path="/*"
-            element={
-              <ProtectedRoute>
-                <AppShell/>
-              </ProtectedRoute>
-            }
-          />
-        </Routes>
-      </AuthProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          <Toaster position="top-right" toastOptions={{ style: { fontSize: 13, background: 'var(--surface)', color: 'var(--text)' } }}/>
+          <Routes>
+            <Route path="/login" element={<Login/>} />
+            <Route path="/change-password" element={<ProtectedRoute><ChangePassword/></ProtectedRoute>} />
+            <Route
+              path="/*"
+              element={
+                <ProtectedRoute>
+                  <AppShell/>
+                </ProtectedRoute>
+              }
+            />
+          </Routes>
+        </AuthProvider>
+      </ThemeProvider>
     </BrowserRouter>
   );
 }
