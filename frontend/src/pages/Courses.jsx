@@ -13,6 +13,7 @@ export default function Courses() {
       title="Courses"
       api={courses}
       fields={fields}
+      filters={[{key: 'credits', label: 'Credits', allLabel: 'All credits'}]}
       formRenderer={(form, setForm) => (
         <>
           <div className="form-row">
