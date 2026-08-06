@@ -30,11 +30,12 @@ export default function Timetable() {
 
   // Form data
   const [deletingSlot, setDeletingSlot] = useState(null);
+  const [editingSlot, setEditingSlot] = useState(null);
   const [showForm, setShowForm]   = useState(false);
-  // eslint-disable-next-line no-unused-vars
   const [clickedSlot, setClicked] = useState(null); // {timeslot_id, day}
   const [form, setForm]           = useState({});
   const [conflicts, setConflicts] = useState([]);
+  const [searchQuery, setSearchQuery] = useState('');
   const [allCourses, setAllCourses]   = useState([]);
   const [allLecturers, setAllLect]    = useState([]);
   const [allVenues, setAllVenues]     = useState([]);
@@ -76,11 +77,11 @@ export default function Timetable() {
   const publishedCount = slotList.length - draftCount;
 
   const openAdd = (tsId, day) => {
-    if (!isAdmin) return; // safety net — should never be reachable by non-admins anyway
-    // eslint-disable-next-line no-unused-vars
+    if (!isAdmin) return;
     const ts = allTimeslots.find(t => t.id === tsId);
     const matchedGroups = allGroups.filter(g => g.level === filterLevel && g.stream === filterStream);
     setClicked({ timeslot_id: tsId, day });
+    setEditingSlot(null);
     setConflicts([]);
     setForm({
       timeslot: tsId,
@@ -110,7 +111,46 @@ export default function Timetable() {
     }
   };
 
+  const openEdit = (slot) => {
+    if (!isAdmin) return;
+    setEditingSlot(slot);
+    setConflicts([]);
+    setForm({
+      course: slot.course?.id || '',
+      lecturer: slot.lecturer?.id || '',
+      venue: slot.venue?.id || '',
+      notes: slot.notes || '',
+    });
+    setShowForm(true);
+  };
+
   const saveSlot = async () => {
+    if (editingSlot) {
+      setSaving(true);
+      setConflicts([]);
+      try {
+        await slots.update(editingSlot.id, {
+          course: form.course,
+          lecturer: form.lecturer,
+          venue: form.venue,
+          notes: form.notes
+        });
+        toast.success('Slot updated successfully');
+        setShowForm(false);
+        loadSlots();
+      } catch (error) {
+        const data = error.response?.data;
+        if (data?.conflicts?.length) {
+          setConflicts(data.conflicts);
+        } else {
+          toast.error(data?.detail || 'Unable to update slot');
+        }
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
+
     if (!form.selectedGroups || form.selectedGroups.length === 0) {
       toast.error('Please select at least one student group');
       return;
@@ -227,6 +267,10 @@ export default function Timetable() {
             <label>Semester</label>
             <input value={filterSem} onChange={e=>setFSem(e.target.value)} style={{width:110}}/>
           </div>
+          <div className="form-group" style={{margin:0}}>
+            <label>Search (Course/Lecturer)</label>
+            <input value={searchQuery} onChange={e=>setSearchQuery(e.target.value)} placeholder="Filter slots..." style={{width:160}}/>
+          </div>
 
           {isAdmin && (
             <>
@@ -299,6 +343,16 @@ export default function Timetable() {
                       const tsForDay = allTimeslots.find(t => t.day === day && t.start_time === ts.start_time);
                       const slot = tsForDay ? grid[day][tsForDay.start_time] : null;
                       const isDraft = slot && isAdmin && !slot.is_published;
+                      
+                      let isMatch = true;
+                      if (slot && searchQuery) {
+                        const lowerQ = searchQuery.toLowerCase();
+                        isMatch = (slot.course?.code?.toLowerCase() || '').includes(lowerQ) ||
+                                  (slot.course?.name?.toLowerCase() || '').includes(lowerQ) ||
+                                  (slot.lecturer?.name?.toLowerCase() || '').includes(lowerQ) ||
+                                  (slot.venue?.code?.toLowerCase() || '').includes(lowerQ);
+                      }
+
                       return (
                         <td
                           key={day}
@@ -309,10 +363,15 @@ export default function Timetable() {
                               className="slot-cell"
                               style={{
                                 cursor: isAdmin ? 'pointer' : 'default',
+                                opacity: isMatch ? 1 : 0.2,
                                 ...(isDraft ? {
                                   background: '#f39c12',
                                   border: '1.5px dashed #b45309',
                                 } : {}),
+                              }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (isAdmin) openEdit(slot);
                               }}
                             >
                               {isDraft && (
@@ -363,13 +422,15 @@ export default function Timetable() {
 
           <div className="login-note-box" style={{ marginBottom: 16 }}>
             <div className="login-note" style={{ textAlign: 'left', margin: 0 }}>
-              New slots are saved as <strong>draft</strong> — students and lecturers won't see this
-              until you click <strong>Publish</strong> on the Timetable page.
+              {editingSlot 
+                ? "You are editing an existing slot."
+                : <>New slots are saved as <strong>draft</strong> — students and lecturers won't see this until you click <strong>Publish</strong>.</>}
             </div>
           </div>
 
-          <div className="form-group"><label>Student Groups (Select Multiple)</label>
-            <div style={{border:'1px solid #e2e8f0',borderRadius:'6px',padding:'10px',maxHeight:'200px',overflowY:'auto'}}>
+          {!editingSlot && (
+            <div className="form-group"><label>Student Groups (Select Multiple)</label>
+              <div style={{border:'1px solid #e2e8f0',borderRadius:'6px',padding:'10px',maxHeight:'200px',overflowY:'auto'}}>
               {allGroups
                 .filter(g => g.level === filterLevel && g.stream === filterStream)
                 .map(g => (
@@ -394,6 +455,7 @@ export default function Timetable() {
               )}
             </div>
           </div>
+          )}
 
           <div className="form-group">
             <label>Course</label>
@@ -419,6 +481,18 @@ export default function Timetable() {
             <input value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})} placeholder="e.g. W01–W06 only"/>
           </div>
           <div className="modal-footer">
+            {editingSlot && (
+              <button 
+                className="btn btn-danger" 
+                style={{marginRight: 'auto'}}
+                onClick={() => {
+                  setShowForm(false);
+                  setDeletingSlot(editingSlot);
+                }}
+              >
+                Delete Slot
+              </button>
+            )}
             <button className="btn btn-ghost" onClick={()=>setShowForm(false)}>Cancel</button>
             <button className="btn btn-primary" onClick={saveSlot} disabled={saving}>
               {saving ? 'Checking conflicts...' : 'Save Slot'}

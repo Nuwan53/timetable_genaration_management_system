@@ -143,16 +143,20 @@ function AppShell() {
               <Menu size={20} aria-hidden="true" />
             </button>
             <div className="topbar-title">Timetable Manager</div>
+            {/* 
             <div className="topbar-search">
               <Search size={16} />
               <input type="text" placeholder="Search sessions..." aria-label="Search sessions" />
             </div>
+            */}
           </div>
           <div className="topbar-right">
+            {/*
             <button className="topbar-link" type="button">Current Semester</button>
             <button className="topbar-link" type="button">Exam Period</button>
             <button className="topbar-link" type="button">Archives</button>
             <span className="topbar-divider" />
+            */}
             <button 
               className="icon-btn theme-toggle-btn" 
               type="button" 
