@@ -1305,19 +1305,26 @@ tr:hover td { background: var(--surface-soft); }
    ============================================================ */
 .skeleton-box {
   height: 20px;
-  background: linear-gradient(90deg, var(--surface-soft) 25%, var(--border) 50%, var(--surface-soft) 75%);
+  background: linear-gradient(90deg, var(--surface-soft) 25%, var(--accent-light) 50%, var(--surface-soft) 75%);
   background-size: 200% 100%;
   border-radius: 6px;
-  animation: shimmer 1.5s infinite linear;
+  animation: shimmer 1.5s cubic-bezier(0.4, 0.0, 0.2, 1) infinite;
 }
 
+.skeleton-title { height: 28px; max-width: 200px; margin-bottom: 8px; }
+.skeleton-text { height: 16px; width: 100%; margin-bottom: 4px; }
+.skeleton-btn { height: 36px; width: 100px; border-radius: var(--radius); }
+.skeleton-avatar { height: 40px; width: 40px; border-radius: 50%; }
+.skeleton-chip { height: 24px; width: 60px; border-radius: 12px; }
+
 @keyframes shimmer {
-  0% {
-    background-position: 200% 0;
-  }
-  100% {
-    background-position: -200% 0;
-  }
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@keyframes pulse-soft {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.05); opacity: 0.85; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1348,13 +1355,13 @@ tr:hover td { background: var(--surface-soft); }
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 60px;
-  height: 60px;
+  width: 64px;
+  height: 64px;
   border-radius: 50%;
-  background: var(--surface-soft);
-  color: var(--text-muted);
-  margin-bottom: 20px;
-  border: 1px solid var(--border);
+  background: var(--accent-light);
+  color: var(--primary);
+  margin-bottom: 24px;
+  animation: pulse-soft 3s ease-in-out infinite;
 }
 
 .empty-state-title {
