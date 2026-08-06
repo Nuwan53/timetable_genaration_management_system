@@ -23,13 +23,18 @@ export default function CrudPage({ title, api, fields, rowRenderer, formRenderer
   const [activeFilters, setActiveFilters] = useState({});
   const itemsPerPage = 10;
 
-  const load = () => { 
-    setLoading(true); 
-    api.list().then(r => { 
-      setItems(r.data); 
-      setCurrentPage(1);
-      setLoading(false); 
-    }); 
+  const load = () => {
+    setLoading(true);
+    api.list()
+      .then((r) => {
+        setItems(r.data);
+        setCurrentPage(1);
+      })
+      .catch((e) => {
+        const msg = e?.response?.data?.detail || e?.response?.data?.message || `Unable to load ${title.toLowerCase()}`;
+        toast.error(typeof msg === 'string' ? msg : `Unable to load ${title.toLowerCase()}`);
+      })
+      .finally(() => setLoading(false));
   };
   useEffect(load, []);
 
