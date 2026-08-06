@@ -7,6 +7,7 @@ import './index.css';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
 import ProtectedRoute from './components/ProtectedRoute';
+import ThemeCustomizer from './components/ThemeCustomizer';
 
 import Login      from './pages/Login';
 import ChangePassword from './pages/ChangePassword';
@@ -157,14 +158,7 @@ function AppShell() {
             <button className="topbar-link" type="button">Archives</button>
             <span className="topbar-divider" />
             */}
-            <button 
-              className="icon-btn theme-toggle-btn" 
-              type="button" 
-              onClick={toggleTheme} 
-              aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-            >
-              {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
-            </button>
+            <ThemeCustomizer />
             <button className="icon-btn" type="button" aria-label="Notifications"><Bell size={16} /></button>
             <div className="topbar-avatar" style={{ overflow: 'hidden' }}>
               {user.avatar_url ? <img src={user.avatar_url} alt="Profile avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : avatarFallback}
