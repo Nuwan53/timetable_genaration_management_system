@@ -8,6 +8,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import ThemeCustomizer from './components/ThemeCustomizer';
+import NotificationPanel from './components/NotificationPanel';
 
 import Login      from './pages/Login';
 import ChangePassword from './pages/ChangePassword';
@@ -159,7 +160,7 @@ function AppShell() {
             <span className="topbar-divider" />
             */}
             <ThemeCustomizer />
-            <button className="icon-btn" type="button" aria-label="Notifications"><Bell size={16} /></button>
+            <NotificationPanel />
             <div className="topbar-avatar" style={{ overflow: 'hidden' }}>
               {user.avatar_url ? <img src={user.avatar_url} alt="Profile avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : avatarFallback}
             </div>
