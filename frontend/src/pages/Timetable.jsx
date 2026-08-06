@@ -41,6 +41,8 @@ export default function Timetable() {
   const [allVenues, setAllVenues]     = useState([]);
   const [allGroups, setAllGroups]     = useState([]);
   const [saving, setSaving]           = useState(false);
+  const [viewMode, setViewMode]       = useState('weekly');
+  const [selectedDay, setSelectedDay] = useState('Monday');
 
   const loadSlots = useCallback(() => {
     setLoading(true);
@@ -272,6 +274,28 @@ export default function Timetable() {
             <input value={searchQuery} onChange={e=>setSearchQuery(e.target.value)} placeholder="Filter slots..." style={{width:160}}/>
           </div>
 
+          <div className="form-group" style={{margin:0}}>
+            <label>View Mode</label>
+            <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: '6px', overflow: 'hidden' }}>
+              <button 
+                type="button"
+                className={`btn btn-sm ${viewMode === 'weekly' ? 'btn-primary' : 'btn-ghost'}`}
+                style={{ borderRadius: 0, border: 'none', borderRight: '1px solid var(--border)', opacity: viewMode === 'weekly' ? 1 : 0.7 }}
+                onClick={() => setViewMode('weekly')}
+              >
+                Weekly
+              </button>
+              <button 
+                type="button"
+                className={`btn btn-sm ${viewMode === 'daily' ? 'btn-primary' : 'btn-ghost'}`}
+                style={{ borderRadius: 0, border: 'none', opacity: viewMode === 'daily' ? 1 : 0.7 }}
+                onClick={() => setViewMode('daily')}
+              >
+                Daily
+              </button>
+            </div>
+          </div>
+
           {isAdmin && (
             <>
               <button
@@ -299,6 +323,25 @@ export default function Timetable() {
             <Download size={14}/> Export PDF
           </button>
         </div>
+
+        {viewMode === 'daily' && (
+          <div style={{ padding: '0 20px 20px', display: 'flex', gap: '8px', overflowX: 'auto' }}>
+            {DAYS.map(d => (
+              <button 
+                key={d} 
+                className={`btn btn-sm ${selectedDay === d ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => setSelectedDay(d)}
+                style={{
+                  border: selectedDay === d ? 'none' : '1px solid var(--border)',
+                  background: selectedDay === d ? 'var(--primary)' : 'transparent',
+                  color: selectedDay === d ? '#fff' : 'var(--text)'
+                }}
+              >
+                {d}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Grid */}
@@ -323,11 +366,11 @@ export default function Timetable() {
         </div>
         {loading ? <div className="loading-center"><div className="spinner"/></div> : (
           <div className="tt-grid-wrap">
-            <table className="tt-grid">
+            <table className={`tt-grid ${viewMode}-view`}>
               <thead>
                 <tr>
                   <th>Time</th>
-                  {DAYS.map(d => <th key={d}>{d}</th>)}
+                  {(viewMode === 'weekly' ? DAYS : [selectedDay]).map(d => <th key={d}>{d}</th>)}
                 </tr>
               </thead>
               <tbody>
@@ -339,7 +382,7 @@ export default function Timetable() {
                 {uniqueTimes.map(ts => (
                   <tr key={ts.id}>
                     <td className="time-col">{ts.start_time.slice(0,5)}<br/><span style={{ fontSize: 9, opacity: .7 }}>{ts.end_time.slice(0,5)}</span></td>
-                    {DAYS.map(day => {
+                    {(viewMode === 'weekly' ? DAYS : [selectedDay]).map(day => {
                       const tsForDay = allTimeslots.find(t => t.day === day && t.start_time === ts.start_time);
                       const slot = tsForDay ? grid[day][tsForDay.start_time] : null;
                       const isDraft = slot && isAdmin && !slot.is_published;
