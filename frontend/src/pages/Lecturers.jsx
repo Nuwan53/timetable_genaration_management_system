@@ -15,6 +15,7 @@ export default function Lecturers() {
       title="Lecturers"
       api={lecturers}
       fields={fields}
+      filters={[{key: 'department', label: 'Department', allLabel: 'All departments'}]}
       formRenderer={(form, setForm) => {
         const isEditing = Boolean(form.id);
 

@@ -1,10 +1,18 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { slots, courses, lecturers, venues, groups, timeslots } from '../api';
-// eslint-disable-next-line no-unused-vars
-import { Download, Plus, X } from 'lucide-react';
+import { Download, X, Upload as UploadIcon, EyeOff } from 'lucide-react';
+import ConfirmDelete from '../components/ConfirmDelete';
 import Modal from '../components/Modal';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
+import axios from 'axios';
+
+const api = axios.create({ baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api' });
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('tms_token');
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
 
 const DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday'];
 
@@ -18,8 +26,10 @@ export default function Timetable() {
   const [filterStream, setFS]     = useState('physical');
   const [filterSem, setFSem]      = useState('S2-2026');
   const [loading, setLoading]     = useState(true);
+  const [publishing, setPublishing] = useState(false);
 
   // Form data
+  const [deletingSlot, setDeletingSlot] = useState(null);
   const [showForm, setShowForm]   = useState(false);
   // eslint-disable-next-line no-unused-vars
   const [clickedSlot, setClicked] = useState(null); // {timeslot_id, day}
@@ -62,6 +72,9 @@ export default function Timetable() {
     grid[day][time] = slot;
   });
 
+  const draftCount = useMemo(() => slotList.filter(s => !s.is_published).length, [slotList]);
+  const publishedCount = slotList.length - draftCount;
+
   const openAdd = (tsId, day) => {
     if (!isAdmin) return; // safety net — should never be reachable by non-admins anyway
     // eslint-disable-next-line no-unused-vars
@@ -81,12 +94,20 @@ export default function Timetable() {
     setShowForm(true);
   };
 
-  const deleteSlot = async (id, e) => {
-    e.stopPropagation();
-    if (!isAdmin) return;
-    await slots.remove(id);
-    toast.success('Slot removed');
-    loadSlots();
+  const handleConfirmDelete = async () => {
+    if (!isAdmin || !deletingSlot) return;
+    try {
+      await slots.remove(deletingSlot.id);
+      await loadSlots();
+      toast.success('Timetable entry deleted successfully');
+      setDeletingSlot(null);
+    } catch (error) {
+      toast.error(
+        error?.response?.data?.detail ||
+        error?.response?.data?.message ||
+        'Unable to delete timetable entry'
+      );
+    }
   };
 
   const saveSlot = async () => {
@@ -100,9 +121,6 @@ export default function Timetable() {
 
     const targets = form.selectedGroups;
 
-    // allSettled — unlike Promise.all, this lets every group's create
-    // attempt run independently. A conflict on one group no longer hides
-    // the fact that the others already succeeded.
     const outcomes = await Promise.allSettled(
       targets.map(groupId =>
         slots.create({ ...form, group: groupId, selectedGroups: undefined })
@@ -129,13 +147,11 @@ export default function Timetable() {
       }
     });
 
-    // Always refresh — whatever DID save is now visible immediately,
-    // instead of silently sitting in the DB until the next page load.
     loadSlots();
     setSaving(false);
 
     if (failedGroupIds.length === 0) {
-      toast.success(`Slot added for ${succeededGroupIds.length} group(s)!`);
+      toast.success(`Slot added for ${succeededGroupIds.length} group(s) — still in draft, not visible to students/lecturers yet`);
       setShowForm(false);
       return;
     }
@@ -144,11 +160,32 @@ export default function Timetable() {
       toast.success(`Saved for ${succeededGroupIds.length} group(s) — ${failedGroupIds.length} had conflicts`);
     }
 
-    // Re-target the form to ONLY the groups that actually failed, so a
-    // retry can't recreate duplicates for groups that already succeeded —
-    // this is what was causing the "conflicts never end" loop.
     setForm((current) => ({ ...current, selectedGroups: failedGroupIds }));
     setConflicts([...new Set(collectedConflicts)]);
+  };
+
+  const handlePublish = async (action) => {
+    const isPublish = action === 'publish';
+    if (!isPublish && !window.confirm('Unpublish this timetable? Students and lecturers will no longer see it until you publish again.')) {
+      return;
+    }
+
+    setPublishing(true);
+    try {
+      const { data } = await api.post('/admin/timetable/publish/', {
+        level: filterLevel, stream: filterStream, semester: filterSem, action,
+      });
+      toast.success(
+        isPublish
+          ? `${data.updated_count} classes published — now visible to students and lecturers`
+          : `${data.updated_count} classes moved back to draft`
+      );
+      loadSlots();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || `Failed to ${action}`);
+    } finally {
+      setPublishing(false);
+    }
   };
 
   const handlePdf = async () => {
@@ -160,8 +197,8 @@ export default function Timetable() {
       a.download = `timetable_${filterLevel}_${filterStream}.pdf`;
       a.click();
       window.URL.revokeObjectURL(url);
-      toast.success('PDF downloaded!');
-    } catch { toast.error('Export failed'); }
+      toast.success('PDF exported successfully');
+    } catch { toast.error('Unable to export PDF'); }
   };
 
   const streamLabel = filterStream === 'physical' ? 'Physical Science' : 'Bio Science';
@@ -190,6 +227,30 @@ export default function Timetable() {
             <label>Semester</label>
             <input value={filterSem} onChange={e=>setFSem(e.target.value)} style={{width:110}}/>
           </div>
+
+          {isAdmin && (
+            <>
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={() => handlePublish('publish')}
+                disabled={publishing || draftCount === 0}
+                style={{ marginTop: 16 }}
+                title={draftCount === 0 ? 'Nothing in draft to publish' : `Publish ${draftCount} draft classes`}
+              >
+                <UploadIcon size={14}/> Publish {draftCount > 0 ? `(${draftCount})` : ''}
+              </button>
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => handlePublish('unpublish')}
+                disabled={publishing || publishedCount === 0}
+                style={{ marginTop: 16, border: '1px solid var(--border)' }}
+                title={publishedCount === 0 ? 'Nothing published to revert' : 'Revert published classes back to draft'}
+              >
+                <EyeOff size={14}/> Unpublish
+              </button>
+            </>
+          )}
+
           <button className="btn btn-green btn-sm" onClick={handlePdf} style={{marginTop:16}}>
             <Download size={14}/> Export PDF
           </button>
@@ -202,11 +263,19 @@ export default function Timetable() {
           <span className="card-title">
             Level {filterLevel} — {streamLabel} — {filterSem}
           </span>
-          {isAdmin ? (
-            <span style={{fontSize:12,color:'#94a3b8'}}>Click empty cell to add a slot</span>
-          ) : (
-            <span className="badge badge-green">Read only</span>
-          )}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            {isAdmin && draftCount > 0 && (
+              <span className="badge badge-amber">{draftCount} draft</span>
+            )}
+            {isAdmin && publishedCount > 0 && (
+              <span className="badge badge-green">{publishedCount} published</span>
+            )}
+            {isAdmin ? (
+              <span style={{fontSize:12,color:'#94a3b8'}}>Click empty cell to add a slot</span>
+            ) : (
+              <span className="badge badge-green">Read only</span>
+            )}
+          </div>
         </div>
         {loading ? <div className="loading-center"><div className="spinner"/></div> : (
           <div className="tt-grid-wrap">
@@ -225,23 +294,41 @@ export default function Timetable() {
                 )}
                 {uniqueTimes.map(ts => (
                   <tr key={ts.id}>
-                    <td className="time-col">{ts.start_time.slice(0,5)}<br/><span style={{fontSize:9,opacity:.7}}>{ts.end_time.slice(0,5)}</span></td>
+                    <td className="time-col">{ts.start_time.slice(0,5)}<br/><span style={{ fontSize: 9, opacity: .7 }}>{ts.end_time.slice(0,5)}</span></td>
                     {DAYS.map(day => {
                       const tsForDay = allTimeslots.find(t => t.day === day && t.start_time === ts.start_time);
                       const slot = tsForDay ? grid[day][tsForDay.start_time] : null;
+                      const isDraft = slot && isAdmin && !slot.is_published;
                       return (
                         <td
                           key={day}
                           onClick={() => isAdmin && !slot && tsForDay && openAdd(tsForDay.id, day)}
                         >
                           {slot ? (
-                            <div className="slot-cell" style={{ cursor: isAdmin ? 'pointer' : 'default' }}>
+                            <div
+                              className="slot-cell"
+                              style={{
+                                cursor: isAdmin ? 'pointer' : 'default',
+                                ...(isDraft ? {
+                                  background: '#f39c12',
+                                  border: '1.5px dashed #b45309',
+                                } : {}),
+                              }}
+                            >
+                              {isDraft && (
+                                <div style={{ fontSize: 8, fontWeight: 700, letterSpacing: 0.5, opacity: 0.9, marginBottom: 2 }}>
+                                  DRAFT
+                                </div>
+                              )}
                               <div style={{fontWeight:600}}>{slot.course.code}</div>
                               <div style={{opacity:.85}}>{slot.venue.code}</div>
                               <div style={{opacity:.7,fontSize:10}}>{slot.lecturer.name.split(' ').pop()}</div>
                               {isAdmin && (
                                 <button className="slot-del btn" style={{background:'transparent',padding:0,color:'#fff',fontSize:12}}
-                                  onClick={e => deleteSlot(slot.id, e)}>
+                                  onClick={e => {
+                                    e.stopPropagation();
+                                    setDeletingSlot(slot);
+                                  }}>
                                   <X size={12}/>
                                 </button>
                               )}
@@ -273,24 +360,14 @@ export default function Timetable() {
               <ul>{conflicts.map((c,i) => <li key={i}>{c}</li>)}</ul>
             </div>
           )}
-          <div className="form-group"><label>Course</label>
-            <select value={form.course} onChange={e=>setForm({...form,course:e.target.value})}>
-              <option value="">— Select course —</option>
-              {allCourses.map(c=><option key={c.id} value={c.id}>{c.code} — {c.name}</option>)}
-            </select>
+
+          <div className="login-note-box" style={{ marginBottom: 16 }}>
+            <div className="login-note" style={{ textAlign: 'left', margin: 0 }}>
+              New slots are saved as <strong>draft</strong> — students and lecturers won't see this
+              until you click <strong>Publish</strong> on the Timetable page.
+            </div>
           </div>
-          <div className="form-group"><label>Lecturer</label>
-            <select value={form.lecturer} onChange={e=>setForm({...form,lecturer:e.target.value})}>
-              <option value="">— Select lecturer —</option>
-              {allLecturers.map(l=><option key={l.id} value={l.id}>{l.name}</option>)}
-            </select>
-          </div>
-          <div className="form-group"><label>Venue</label>
-            <select value={form.venue} onChange={e=>setForm({...form,venue:e.target.value})}>
-              <option value="">— Select venue —</option>
-              {allVenues.map(v=><option key={v.id} value={v.id}>{v.code} — {v.name}</option>)}
-            </select>
-          </div>
+
           <div className="form-group"><label>Student Groups (Select Multiple)</label>
             <div style={{border:'1px solid #e2e8f0',borderRadius:'6px',padding:'10px',maxHeight:'200px',overflowY:'auto'}}>
               {allGroups
@@ -317,6 +394,27 @@ export default function Timetable() {
               )}
             </div>
           </div>
+
+          <div className="form-group">
+            <label>Course</label>
+            <select value={form.course} onChange={e=>setForm({...form,course:e.target.value})}>
+              <option value="">— Select course —</option>
+              {allCourses.map(c=><option key={c.id} value={c.id}>{c.code} — {c.name}</option>)}
+            </select>
+          </div>
+          <div className="form-group"><label>Lecturer</label>
+            <select value={form.lecturer} onChange={e=>setForm({...form,lecturer:e.target.value})}>
+              <option value="">— Select lecturer —</option>
+              {allLecturers.map(l=><option key={l.id} value={l.id}>{l.name}</option>)}
+            </select>
+          </div>
+          <div className="form-group"><label>Venue</label>
+            <select value={form.venue} onChange={e=>setForm({...form,venue:e.target.value})}>
+              <option value="">— Select venue —</option>
+              {allVenues.map(v=><option key={v.id} value={v.id}>{v.code} — {v.name}</option>)}
+            </select>
+          </div>
+
           <div className="form-group"><label>Notes (optional)</label>
             <input value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})} placeholder="e.g. W01–W06 only"/>
           </div>
@@ -327,6 +425,14 @@ export default function Timetable() {
             </button>
           </div>
         </Modal>
+      )}
+
+      {deletingSlot && (
+        <ConfirmDelete
+          name={`${deletingSlot.course?.code || 'Course'}, ${deletingSlot.group?.display || deletingSlot.group?.name || allGroups.find(g => g.id === (deletingSlot.group?.id || deletingSlot.group))?.display || 'Group'}, ${deletingSlot.timeslot?.day || ''} ${deletingSlot.timeslot?.start_time?.slice(0,5) || ''}`}
+          onConfirm={handleConfirmDelete}
+          onClose={() => setDeletingSlot(null)}
+        />
       )}
     </div>
   );

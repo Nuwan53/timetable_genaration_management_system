@@ -22,7 +22,7 @@ export default function ChangePassword() {
     e.preventDefault();
 
     if (!currentPw) {
-      toast.error('Current password is required');
+      toast.error('Please complete all required fields');
       return;
     }
 
@@ -43,7 +43,7 @@ export default function ChangePassword() {
         new_password: newPw,
       });
 
-      toast.success('Password updated successfully!');
+      toast.success('Password changed successfully');
       
       // Update local storage and auth context state
       updateUser({ must_change_password: false });

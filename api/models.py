@@ -5,7 +5,7 @@ from django.db import models
 class Course(models.Model):
     code = models.CharField(max_length=20, unique=True)
     name = models.CharField(max_length=100)
-    credits = models.PositiveSmallIntegerField(default=3)
+    credits = models.DecimalField(max_digits=4, decimal_places=2, default=3)
 
     def __str__(self):
         return f"{self.code} — {self.name}"
@@ -52,8 +52,10 @@ class StudentGroup(models.Model):
 
     level = models.CharField(max_length=5, choices=LEVEL_CHOICES)
     stream = models.CharField(max_length=10, choices=STREAM_CHOICES)
-    subgroup = models.CharField(max_length=10, blank=True)
+    subgroup = models.CharField(max_length=50, blank=True)
     year = models.CharField(max_length=4, default='2024')
+    courses = models.ManyToManyField(Course, blank=True, related_name='student_groups')  # ADD THIS LINE
+
 
     def __str__(self):
         sub = f" ({self.subgroup})" if self.subgroup else ""
@@ -89,6 +91,7 @@ class ScheduleSlot(models.Model):
     group = models.ForeignKey(StudentGroup, on_delete=models.CASCADE, related_name='schedule_slots')
     semester = models.CharField(max_length=20, default='S2-2026')
     notes = models.CharField(max_length=200, blank=True)
+    is_published = models.BooleanField(default=True)
 
     def __str__(self):
         return f"{self.course.code} | {self.timeslot} | {self.venue.code}"

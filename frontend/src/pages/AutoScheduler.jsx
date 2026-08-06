@@ -45,7 +45,7 @@ export default function AutoScheduler() {
         setCoursesList(coursesRes.data);
         setLecturersList(lecturersRes.data);
       } catch (error) {
-        toast.error('Failed to load groups/courses/lecturers');
+        toast.error('Unable to load groups/courses/lecturers');
       } finally {
         setLoadingOptions(false);
       }
@@ -74,7 +74,7 @@ export default function AutoScheduler() {
     }
     const incomplete = requirements.some((r) => !r.course_id || !r.lecturer_id);
     if (incomplete) {
-      toast.error('Every row needs a course and a lecturer selected');
+      toast.error('Please complete all required fields');
       return;
     }
 
@@ -92,12 +92,12 @@ export default function AutoScheduler() {
       });
       setPreview(data);
       if (data.is_complete) {
-        toast.success(`All ${data.assigned_count} classes placed with zero conflicts`);
+        toast.success(`All ${data.assigned_count} classes scheduled successfully`);
       } else {
         toast.error(`${data.assigned_count} placed, ${data.unassigned_count} could not be fit in — try adjusting`);
       }
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to generate schedule');
+      toast.error(error.response?.data?.detail || error.response?.data?.message || 'Unable to generate schedule');
     } finally {
       setGenerating(false);
     }
@@ -107,7 +107,7 @@ export default function AutoScheduler() {
     if (!preview) return;
     const toCreate = preview.results.filter((r) => r.status === 'assigned');
     if (toCreate.length === 0) {
-      toast.error('Nothing to apply — no classes were successfully placed');
+      toast.error('No timetable entries were available to save');
       return;
     }
 
@@ -136,7 +136,7 @@ export default function AutoScheduler() {
 
     setApplying(false);
     if (failed === 0) {
-      toast.success(`${created} classes added to the timetable`);
+      toast.success(`${created} timetable entries created successfully`);
       setPreview(null);
       setRequirements([{ course_id: '', lecturer_id: '', venue_type: '' }]);
     } else {

@@ -28,6 +28,7 @@ class VenueSerializer(serializers.ModelSerializer):
 
 class StudentGroupSerializer(serializers.ModelSerializer):
     display = serializers.SerializerMethodField()
+    courses = serializers.PrimaryKeyRelatedField(many = True, queryset=Course.objects.all(), required=False)
 
     class Meta:
         model = StudentGroup
@@ -63,27 +64,42 @@ class ScheduleSlotWriteSerializer(serializers.ModelSerializer):
         model = ScheduleSlot
         fields = '__all__'
 
-    def _check_conflicts(self, timeslot, venue, lecturer, group, exclude_id=None):
+    # Replace the _check_conflicts and validate methods on ScheduleSlotWriteSerializer
+# with these versions. Everything else in the serializer stays the same.
+
+    def _check_conflicts(self, timeslot, venue, lecturer, group, course, exclude_id=None):
         qs = ScheduleSlot.objects.filter(timeslot=timeslot)
         if exclude_id:
             qs = qs.exclude(pk=exclude_id)
 
         errors = []
 
-        if qs.filter(venue=venue).exists():
-            clash = qs.filter(venue=venue).first()
+        # Venue: only a REAL conflict if a DIFFERENT course/lecturer is
+        # already using that room at this time. Same course + same
+        # lecturer just means this is a joint class being extended to
+        # another student group — that's allowed, not a clash.
+        venue_clashes = qs.filter(venue=venue).exclude(course=course, lecturer=lecturer)
+        if venue_clashes.exists():
+            clash = venue_clashes.first()
             errors.append(
                 f"Venue conflict: {venue.code} is already used by "
                 f"{clash.course.code} at this time slot."
             )
 
-        if qs.filter(lecturer=lecturer).exists():
-            clash = qs.filter(lecturer=lecturer).first()
+        # Lecturer: same idea — only a conflict if it's genuinely a
+        # different class (different course or different room). A
+        # lecturer teaching the SAME course in the SAME room, just to
+        # another group, is one class, not a double-booking.
+        lecturer_clashes = qs.filter(lecturer=lecturer).exclude(course=course, venue=venue)
+        if lecturer_clashes.exists():
+            clash = lecturer_clashes.first()
             errors.append(
                 f"Lecturer conflict: {lecturer.name} already has "
                 f"{clash.course.code} at this time slot."
             )
 
+        # Student group: always strict. A group can only be in one place
+        # at a time, no exceptions — this check is unchanged.
         if qs.filter(group=group).exists():
             clash = qs.filter(group=group).first()
             errors.append(
@@ -98,14 +114,21 @@ class ScheduleSlotWriteSerializer(serializers.ModelSerializer):
         venue = data.get('venue')
         lecturer = data.get('lecturer')
         group = data.get('group')
+        course = data.get('course')
         exclude_id = self.instance.pk if self.instance else None
 
-        errors = self._check_conflicts(timeslot, venue, lecturer, group, exclude_id)
+        errors = self._check_conflicts(timeslot, venue, lecturer, group, course, exclude_id)
         if errors:
             raise serializers.ValidationError({'conflicts': errors})
 
         return data
 
+    def create(self, validated_data):
+        # New slots ALWAYS start unpublished, regardless of what the
+        # client sends — the only way to become visible to
+        # students/lecturers is via the explicit Publish action.
+        validated_data['is_published'] = False
+        return super().create(validated_data)
 
 class AuthUserSerializer(serializers.Serializer):
     id = serializers.IntegerField()

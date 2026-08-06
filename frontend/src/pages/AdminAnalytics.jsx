@@ -169,6 +169,7 @@ export default function AdminAnalytics() {
                         <th>Booked Slots</th>
                         <th>Total Slots</th>
                         <th>Utilization</th>
+                        
                       </tr>
                     </thead>
                     <tbody>
@@ -305,22 +306,55 @@ export default function AdminAnalytics() {
                   <thead>
                     <tr>
                       <th>Time</th>
-                      {DAYS.map((day) => <th key={day}>{day}</th>)}
+                      {DAYS.map((day) => (
+                        <th key={day}>{day}</th>
+                      ))}
                     </tr>
                   </thead>
                   <tbody>
                     {uniqueTimes.map((timeSlot) => (
-                      <tr key={timeSlot.id}>
-                        <td className="time-col">{timeSlot.start_time}<br /><span style={{ fontSize: 9, opacity: 0.7 }}>{timeSlot.end_time}</span></td>
+                      <tr key={timeSlot.start_time}>
+                        <td>{timeSlot.start_time}</td>
                         {DAYS.map((day) => {
                           const slot = findSlot(day, timeSlot.start_time);
-                          if (!slot) return <td key={day}><span style={{ color: '#cbd5e1', fontSize: 11 }}>—</span></td>;
+                          if (!slot) {
+                            return (
+                              <td key={day}>
+                                <span style={{ color: '#cbd5e1', fontSize: 11 }}>—</span>
+                              </td>
+                            );
+                          }
                           return (
                             <td key={day}>
                               {slot.is_free ? (
-                                <span className="badge badge-green" style={{ width: '100%', display: 'block', padding: '8px 4px' }}>Free</span>
+                                <span className="badge badge-green" style={{ width: '100%', display: 'block', padding: '8px 4px' }}>
+                                  Free
+                                </span>
                               ) : (
-                                <span style={{ display: 'block', padding: '8px 4px', background: '#f1f5f9', borderRadius: 6, color: '#94a3b8', fontSize: 11 }}>Booked</span>
+                                <div className="free-slot-wrap">
+                                  <span style={{ display: 'block', padding: '8px 4px', background: '#f1f5f9', borderRadius: 6, color: '#94a3b8', fontSize: 11, cursor: 'help' }}>
+                                    Booked
+                                  </span>
+                                  <div className="free-slot-tooltip">
+                                    {slot.occupants && slot.occupants.length > 0 ? (
+                                      slot.occupants.map((occupant, index) => (
+                                        <div className="free-slot-tooltip-row" key={index}>
+                                          <div className="free-slot-tooltip-title">
+                                            {occupant.course_code} — {occupant.course_name}
+                                          </div>
+                                          {mode === 'venue' ? (
+                                            <div>Lecturer: {occupant.lecturer_name}</div>
+                                          ) : (
+                                            <div>Venue: {occupant.venue_code}</div>
+                                          )}
+                                          <div>Group: {occupant.group_display}</div>
+                                        </div>
+                                      ))
+                                    ) : (
+                                      <div>No details available</div>
+                                    )}
+                                  </div>
+                                </div>
                               )}
                             </td>
                           );

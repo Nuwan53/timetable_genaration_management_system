@@ -23,7 +23,7 @@ export default function Admins() {
       setAdmins(data);
     // eslint-disable-next-line no-unused-vars
     } catch (error) {
-      toast.error('Failed to load admin accounts');
+      toast.error('Unable to load admin accounts');
     } finally {
       setLoading(false);
     }
@@ -37,18 +37,18 @@ export default function Admins() {
   const handleCreate = async (event) => {
     event.preventDefault();
     if (!form.name.trim() || !form.email.trim()) {
-      toast.error('Name and email are required');
+      toast.error('Please complete all required fields');
       return;
     }
 
     setCreating(true);
     try {
       await api.post('/admin/admins/', form);
-      toast.success(`Admin account created — credentials emailed to ${form.email}`);
+      toast.success(`Admin added successfully — credentials emailed to ${form.email}`);
       setForm({ name: '', email: '', password: '' });
       loadAdmins();
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to create admin account');
+      toast.error(error.response?.data?.detail || error.response?.data?.message || 'Unable to add admin');
     } finally {
       setCreating(false);
     }
