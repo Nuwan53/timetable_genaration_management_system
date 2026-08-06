@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { slots, courses, lecturers, venues, groups, timeslots } from '../api';
-import { Download, Plus, X, Upload as UploadIcon, EyeOff } from 'lucide-react';
+import { Download, X, Upload as UploadIcon, EyeOff } from 'lucide-react';
 import ConfirmDelete from '../components/ConfirmDelete';
 import Modal from '../components/Modal';
 import toast from 'react-hot-toast';
