@@ -72,9 +72,7 @@ export default function Login() {
           <div className="login-panel-features">
             {[
               { icon: <ShieldCheck size={17} />, label: 'Secure Login' },
-              { icon: <Users size={17} />,       label: 'Role-Based Access' },
               { icon: <RefreshCw size={17} />,   label: 'Live Sync' },
-              { icon: <Clock size={17} />,       label: '24/7 Access' },
             ].map(f => (
               <div key={f.label} className="login-panel-feature">
                 {f.icon}
