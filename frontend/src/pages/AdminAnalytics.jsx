@@ -19,8 +19,7 @@ const TABS = [
   { key: 'freeslots', label: 'Free Slot Finder', icon: <CalendarSearch size={15} /> },
 ];
 
-// A small, fixed palette so bars are readable without being garish
-const BAR_COLORS = ['#1d4ed8', '#2563eb', '#3b82f6', '#60a5fa', '#93c5fd', '#0d1b2a', '#c6963c', '#e4c77b'];
+// (Palette generated dynamically using var(--accent-primary) and fillOpacity)
 
 export default function AdminAnalytics() {
   const [activeTab, setActiveTab] = useState('overview');
@@ -146,13 +145,18 @@ export default function AdminAnalytics() {
                   <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>Room Utilization (%)</div>
                   <ResponsiveContainer width="100%" height={280}>
                     <BarChart data={summary.room_utilization} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                      <XAxis dataKey="venue_code" fontSize={12} />
-                      <YAxis fontSize={12} unit="%" />
-                      <Tooltip formatter={(value) => [`${value}%`, 'Utilization']} labelFormatter={(label) => `Venue: ${label}`} />
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                      <XAxis dataKey="venue_code" fontSize={12} stroke="var(--text-muted)" tick={{ fill: 'var(--text)' }} />
+                      <YAxis fontSize={12} unit="%" stroke="var(--text-muted)" tick={{ fill: 'var(--text)' }} />
+                      <Tooltip 
+                        contentStyle={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)', color: 'var(--text)' }}
+                        itemStyle={{ color: 'var(--primary)' }} 
+                        formatter={(value) => [`${value}%`, 'Utilization']} 
+                        labelFormatter={(label) => `Venue: ${label}`} 
+                      />
                       <Bar dataKey="utilization_pct" radius={[6, 6, 0, 0]}>
                         {summary.room_utilization.map((_, index) => (
-                          <Cell key={index} fill={BAR_COLORS[index % BAR_COLORS.length]} />
+                          <Cell key={index} fill="var(--primary)" fillOpacity={Math.max(0.3, 1 - (index * 0.15))} />
                         ))}
                       </Bar>
                     </BarChart>
@@ -199,11 +203,19 @@ export default function AdminAnalytics() {
                       layout="vertical"
                       margin={{ top: 5, right: 30, bottom: 5, left: 10 }}
                     >
-                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                      <XAxis type="number" fontSize={12} unit="h" />
-                      <YAxis type="category" dataKey="lecturer_name" fontSize={11} width={140} />
-                      <Tooltip formatter={(value) => [`${value} hrs`, 'Weekly hours']} />
-                      <Bar dataKey="weekly_hours" fill="#1d4ed8" radius={[0, 6, 6, 0]} />
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                      <XAxis type="number" fontSize={12} unit="h" stroke="var(--text-muted)" tick={{ fill: 'var(--text)' }} />
+                      <YAxis type="category" dataKey="lecturer_name" fontSize={11} width={140} stroke="var(--text-muted)" tick={{ fill: 'var(--text)' }} />
+                      <Tooltip 
+                        contentStyle={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)', color: 'var(--text)' }}
+                        itemStyle={{ color: 'var(--primary)' }}
+                        formatter={(value) => [`${value} hrs`, 'Weekly hours']} 
+                      />
+                      <Bar dataKey="weekly_hours" radius={[0, 6, 6, 0]}>
+                        {summary.lecturer_workload.map((_, index) => (
+                          <Cell key={index} fill="var(--primary)" fillOpacity={Math.max(0.3, 1 - (index * 0.1))} />
+                        ))}
+                      </Bar>
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -235,11 +247,18 @@ export default function AdminAnalytics() {
                   <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>Classes Scheduled Per Day</div>
                   <ResponsiveContainer width="100%" height={260}>
                     <BarChart data={summary.day_distribution} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                      <XAxis dataKey="day" fontSize={12} />
-                      <YAxis fontSize={12} allowDecimals={false} />
-                      <Tooltip />
-                      <Bar dataKey="classes" fill="#c6963c" radius={[6, 6, 0, 0]} />
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                      <XAxis dataKey="day" fontSize={12} stroke="var(--text-muted)" tick={{ fill: 'var(--text)' }} />
+                      <YAxis fontSize={12} allowDecimals={false} stroke="var(--text-muted)" tick={{ fill: 'var(--text)' }} />
+                      <Tooltip 
+                        contentStyle={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)', color: 'var(--text)' }}
+                        itemStyle={{ color: 'var(--primary)' }}
+                      />
+                      <Bar dataKey="classes" radius={[6, 6, 0, 0]}>
+                        {summary.day_distribution.map((_, index) => (
+                          <Cell key={index} fill="var(--primary)" fillOpacity={Math.max(0.3, 1 - (index * 0.15))} />
+                        ))}
+                      </Bar>
                     </BarChart>
                   </ResponsiveContainer>
                 </div>

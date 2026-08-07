@@ -56,10 +56,12 @@ export default function EmptyState({ title, onAction }) {
       </div>
       <h3 className="empty-state-title">{config.heading}</h3>
       <p className="empty-state-description">{config.description}</p>
-      <button type="button" className="btn btn-primary" onClick={onAction}>
-        <Plus size={16} />
-        {config.actionLabel}
-      </button>
+      {onAction && (
+        <button type="button" className="btn btn-primary" onClick={onAction}>
+          <Plus size={16} />
+          {config.actionLabel}
+        </button>
+      )}
     </div>
   );
 }

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
-import { ShieldPlus, UserCog } from 'lucide-react';
+import { ShieldPlus, UserCog, Trash2 } from 'lucide-react';
 import axios from 'axios';
+import ConfirmDelete from '../components/ConfirmDelete';
 
 const api = axios.create({ baseURL: 'http://localhost:8000/api' });
 api.interceptors.request.use((config) => {
@@ -15,6 +16,7 @@ export default function Admins() {
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState({ name: '', email: '', password: '' });
   const [creating, setCreating] = useState(false);
+  const [deletingAdmin, setDeletingAdmin] = useState(null);
 
   const loadAdmins = async () => {
     setLoading(true);
@@ -51,6 +53,18 @@ export default function Admins() {
       toast.error(error.response?.data?.detail || error.response?.data?.message || 'Unable to add admin');
     } finally {
       setCreating(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!deletingAdmin) return;
+    try {
+      await api.delete(`/admin/admins/${deletingAdmin.id}/`);
+      toast.success('Admin removed successfully');
+      setDeletingAdmin(null);
+      loadAdmins();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to remove admin');
     }
   };
 
@@ -106,7 +120,19 @@ export default function Admins() {
                     <td>{admin.name}</td>
                     <td>{admin.email}</td>
                     <td>{new Date(admin.date_joined).toLocaleDateString()}</td>
-                    <td>{admin.is_you && <span className="badge badge-blue">You</span>}</td>
+                    <td>
+                      {admin.is_you ? (
+                        <span className="badge badge-blue">You</span>
+                      ) : (
+                        <button 
+                          className="icon-btn danger" 
+                          onClick={() => setDeletingAdmin(admin)}
+                          title="Remove Admin"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -114,6 +140,14 @@ export default function Admins() {
           </div>
         )}
       </div>
+
+      {deletingAdmin && (
+        <ConfirmDelete
+          name={deletingAdmin.name}
+          onConfirm={handleDelete}
+          onClose={() => setDeletingAdmin(null)}
+        />
+      )}
     </div>
   );
 }

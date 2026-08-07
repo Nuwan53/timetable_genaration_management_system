@@ -7,6 +7,8 @@ import './index.css';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
 import ProtectedRoute from './components/ProtectedRoute';
+import ThemeCustomizer from './components/ThemeCustomizer';
+import NotificationPanel from './components/NotificationPanel';
 
 import Login      from './pages/Login';
 import ChangePassword from './pages/ChangePassword';
@@ -143,25 +145,22 @@ function AppShell() {
               <Menu size={20} aria-hidden="true" />
             </button>
             <div className="topbar-title">Timetable Manager</div>
+            {/* 
             <div className="topbar-search">
               <Search size={16} />
               <input type="text" placeholder="Search sessions..." aria-label="Search sessions" />
             </div>
+            */}
           </div>
           <div className="topbar-right">
+            {/*
             <button className="topbar-link" type="button">Current Semester</button>
             <button className="topbar-link" type="button">Exam Period</button>
             <button className="topbar-link" type="button">Archives</button>
             <span className="topbar-divider" />
-            <button 
-              className="icon-btn theme-toggle-btn" 
-              type="button" 
-              onClick={toggleTheme} 
-              aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-            >
-              {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
-            </button>
-            <button className="icon-btn" type="button" aria-label="Notifications"><Bell size={16} /></button>
+            */}
+            <ThemeCustomizer />
+            <NotificationPanel />
             <div className="topbar-avatar" style={{ overflow: 'hidden' }}>
               {user.avatar_url ? <img src={user.avatar_url} alt="Profile avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : avatarFallback}
             </div>

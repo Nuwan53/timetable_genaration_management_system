@@ -51,7 +51,7 @@ DATABASES = {
         'USER': 'root',
         'PASSWORD': '',
         'HOST': 'localhost',
-'PORT': config('DB_PORT', default='3306'),
+'PORT': config('DB_PORT', default='3307'),
         'OPTIONS': {'charset': 'utf8mb4'},
     }
 }

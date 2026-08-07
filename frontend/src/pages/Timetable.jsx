@@ -30,16 +30,19 @@ export default function Timetable() {
 
   // Form data
   const [deletingSlot, setDeletingSlot] = useState(null);
+  const [editingSlot, setEditingSlot] = useState(null);
   const [showForm, setShowForm]   = useState(false);
-  // eslint-disable-next-line no-unused-vars
   const [clickedSlot, setClicked] = useState(null); // {timeslot_id, day}
   const [form, setForm]           = useState({});
   const [conflicts, setConflicts] = useState([]);
+  const [searchQuery, setSearchQuery] = useState('');
   const [allCourses, setAllCourses]   = useState([]);
   const [allLecturers, setAllLect]    = useState([]);
   const [allVenues, setAllVenues]     = useState([]);
   const [allGroups, setAllGroups]     = useState([]);
   const [saving, setSaving]           = useState(false);
+  const [viewMode, setViewMode]       = useState('weekly');
+  const [selectedDay, setSelectedDay] = useState('Monday');
 
   const loadSlots = useCallback(() => {
     setLoading(true);
@@ -76,11 +79,11 @@ export default function Timetable() {
   const publishedCount = slotList.length - draftCount;
 
   const openAdd = (tsId, day) => {
-    if (!isAdmin) return; // safety net — should never be reachable by non-admins anyway
-    // eslint-disable-next-line no-unused-vars
+    if (!isAdmin) return;
     const ts = allTimeslots.find(t => t.id === tsId);
     const matchedGroups = allGroups.filter(g => g.level === filterLevel && g.stream === filterStream);
     setClicked({ timeslot_id: tsId, day });
+    setEditingSlot(null);
     setConflicts([]);
     setForm({
       timeslot: tsId,
@@ -110,7 +113,46 @@ export default function Timetable() {
     }
   };
 
+  const openEdit = (slot) => {
+    if (!isAdmin) return;
+    setEditingSlot(slot);
+    setConflicts([]);
+    setForm({
+      course: slot.course?.id || '',
+      lecturer: slot.lecturer?.id || '',
+      venue: slot.venue?.id || '',
+      notes: slot.notes || '',
+    });
+    setShowForm(true);
+  };
+
   const saveSlot = async () => {
+    if (editingSlot) {
+      setSaving(true);
+      setConflicts([]);
+      try {
+        await slots.update(editingSlot.id, {
+          course: form.course,
+          lecturer: form.lecturer,
+          venue: form.venue,
+          notes: form.notes
+        });
+        toast.success('Slot updated successfully');
+        setShowForm(false);
+        loadSlots();
+      } catch (error) {
+        const data = error.response?.data;
+        if (data?.conflicts?.length) {
+          setConflicts(data.conflicts);
+        } else {
+          toast.error(data?.detail || 'Unable to update slot');
+        }
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
+
     if (!form.selectedGroups || form.selectedGroups.length === 0) {
       toast.error('Please select at least one student group');
       return;
@@ -227,6 +269,32 @@ export default function Timetable() {
             <label>Semester</label>
             <input value={filterSem} onChange={e=>setFSem(e.target.value)} style={{width:110}}/>
           </div>
+          <div className="form-group" style={{margin:0}}>
+            <label>Search (Course/Lecturer)</label>
+            <input value={searchQuery} onChange={e=>setSearchQuery(e.target.value)} placeholder="Filter slots..." style={{width:160}}/>
+          </div>
+
+          <div className="form-group" style={{margin:0}}>
+            <label>View Mode</label>
+            <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: '6px', overflow: 'hidden' }}>
+              <button 
+                type="button"
+                className={`btn btn-sm ${viewMode === 'weekly' ? 'btn-primary' : 'btn-ghost'}`}
+                style={{ borderRadius: 0, border: 'none', borderRight: '1px solid var(--border)', opacity: viewMode === 'weekly' ? 1 : 0.7 }}
+                onClick={() => setViewMode('weekly')}
+              >
+                Weekly
+              </button>
+              <button 
+                type="button"
+                className={`btn btn-sm ${viewMode === 'daily' ? 'btn-primary' : 'btn-ghost'}`}
+                style={{ borderRadius: 0, border: 'none', opacity: viewMode === 'daily' ? 1 : 0.7 }}
+                onClick={() => setViewMode('daily')}
+              >
+                Daily
+              </button>
+            </div>
+          </div>
 
           {isAdmin && (
             <>
@@ -255,6 +323,25 @@ export default function Timetable() {
             <Download size={14}/> Export PDF
           </button>
         </div>
+
+        {viewMode === 'daily' && (
+          <div style={{ padding: '0 20px 20px', display: 'flex', gap: '8px', overflowX: 'auto' }}>
+            {DAYS.map(d => (
+              <button 
+                key={d} 
+                className={`btn btn-sm ${selectedDay === d ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => setSelectedDay(d)}
+                style={{
+                  border: selectedDay === d ? 'none' : '1px solid var(--border)',
+                  background: selectedDay === d ? 'var(--primary)' : 'transparent',
+                  color: selectedDay === d ? '#fff' : 'var(--text)'
+                }}
+              >
+                {d}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Grid */}
@@ -279,11 +366,11 @@ export default function Timetable() {
         </div>
         {loading ? <div className="loading-center"><div className="spinner"/></div> : (
           <div className="tt-grid-wrap">
-            <table className="tt-grid">
+            <table className={`tt-grid ${viewMode}-view`}>
               <thead>
                 <tr>
                   <th>Time</th>
-                  {DAYS.map(d => <th key={d}>{d}</th>)}
+                  {(viewMode === 'weekly' ? DAYS : [selectedDay]).map(d => <th key={d}>{d}</th>)}
                 </tr>
               </thead>
               <tbody>
@@ -295,10 +382,20 @@ export default function Timetable() {
                 {uniqueTimes.map(ts => (
                   <tr key={ts.id}>
                     <td className="time-col">{ts.start_time.slice(0,5)}<br/><span style={{ fontSize: 9, opacity: .7 }}>{ts.end_time.slice(0,5)}</span></td>
-                    {DAYS.map(day => {
+                    {(viewMode === 'weekly' ? DAYS : [selectedDay]).map(day => {
                       const tsForDay = allTimeslots.find(t => t.day === day && t.start_time === ts.start_time);
                       const slot = tsForDay ? grid[day][tsForDay.start_time] : null;
                       const isDraft = slot && isAdmin && !slot.is_published;
+                      
+                      let isMatch = true;
+                      if (slot && searchQuery) {
+                        const lowerQ = searchQuery.toLowerCase();
+                        isMatch = (slot.course?.code?.toLowerCase() || '').includes(lowerQ) ||
+                                  (slot.course?.name?.toLowerCase() || '').includes(lowerQ) ||
+                                  (slot.lecturer?.name?.toLowerCase() || '').includes(lowerQ) ||
+                                  (slot.venue?.code?.toLowerCase() || '').includes(lowerQ);
+                      }
+
                       return (
                         <td
                           key={day}
@@ -309,10 +406,15 @@ export default function Timetable() {
                               className="slot-cell"
                               style={{
                                 cursor: isAdmin ? 'pointer' : 'default',
+                                opacity: isMatch ? 1 : 0.2,
                                 ...(isDraft ? {
                                   background: '#f39c12',
                                   border: '1.5px dashed #b45309',
                                 } : {}),
+                              }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (isAdmin) openEdit(slot);
                               }}
                             >
                               {isDraft && (
@@ -363,13 +465,15 @@ export default function Timetable() {
 
           <div className="login-note-box" style={{ marginBottom: 16 }}>
             <div className="login-note" style={{ textAlign: 'left', margin: 0 }}>
-              New slots are saved as <strong>draft</strong> — students and lecturers won't see this
-              until you click <strong>Publish</strong> on the Timetable page.
+              {editingSlot 
+                ? "You are editing an existing slot."
+                : <>New slots are saved as <strong>draft</strong> — students and lecturers won't see this until you click <strong>Publish</strong>.</>}
             </div>
           </div>
 
-          <div className="form-group"><label>Student Groups (Select Multiple)</label>
-            <div style={{border:'1px solid #e2e8f0',borderRadius:'6px',padding:'10px',maxHeight:'200px',overflowY:'auto'}}>
+          {!editingSlot && (
+            <div className="form-group"><label>Student Groups (Select Multiple)</label>
+              <div style={{border:'1px solid #e2e8f0',borderRadius:'6px',padding:'10px',maxHeight:'200px',overflowY:'auto'}}>
               {allGroups
                 .filter(g => g.level === filterLevel && g.stream === filterStream)
                 .map(g => (
@@ -394,6 +498,7 @@ export default function Timetable() {
               )}
             </div>
           </div>
+          )}
 
           <div className="form-group">
             <label>Course</label>
@@ -419,6 +524,18 @@ export default function Timetable() {
             <input value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})} placeholder="e.g. W01–W06 only"/>
           </div>
           <div className="modal-footer">
+            {editingSlot && (
+              <button 
+                className="btn btn-danger" 
+                style={{marginRight: 'auto'}}
+                onClick={() => {
+                  setShowForm(false);
+                  setDeletingSlot(editingSlot);
+                }}
+              >
+                Delete Slot
+              </button>
+            )}
             <button className="btn btn-ghost" onClick={()=>setShowForm(false)}>Cancel</button>
             <button className="btn btn-primary" onClick={saveSlot} disabled={saving}>
               {saving ? 'Checking conflicts...' : 'Save Slot'}
