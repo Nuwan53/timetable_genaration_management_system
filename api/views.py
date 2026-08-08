@@ -29,7 +29,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from .models import (
     Course, Lecturer, Venue, StudentGroup, TimeSlot, ScheduleSlot,
     LecturerRequest, LecturerNotification, Announcement, StudentNotification,
-    UserProfile,
+    UserProfile, AuditLog
 )
 from .serializers import (
     CourseSerializer, LecturerSerializer, VenueSerializer,
@@ -59,6 +59,27 @@ TIMES = ['08:00', '09:00', '10:00', '11:00', '12:00', '13:00',
 # ============================================================
 # Shared helpers
 # ============================================================
+def log_activity(request, action, model_name, object_id, object_repr, details=''):
+    """
+    Call this after any create/update/delete/publish action worth tracking.
+    Never raises — a logging failure should never break the actual
+    operation it's trying to record.
+    """
+    try:
+        actor = getattr(request, 'user', None)
+        actor_name = actor.get_full_name().strip() or actor.username if actor and actor.is_authenticated else 'Unknown'
+        AuditLog.objects.create(
+            actor=actor if actor and actor.is_authenticated else None,
+            actor_name=actor_name,
+            action=action,
+            model_name=model_name,
+            object_id=str(object_id) if object_id is not None else None,
+            object_repr=str(object_repr)[:255],
+            details=details,
+        )
+    except Exception:
+        pass
+
 
 def parse_uploaded_file(file):
     """
@@ -228,6 +249,32 @@ def auth_login(request):
     })
 
 
+class AuditLogMixin:
+    audit_model_name = None  # optional override; defaults to the instance's class name
+ 
+    def perform_create(self, serializer):
+        instance = serializer.save()
+        log_activity(
+            self.request, 'CREATE',
+            self.audit_model_name or instance.__class__.__name__,
+            instance.pk, str(instance),
+        )
+ 
+    def perform_update(self, serializer):
+        instance = serializer.save()
+        log_activity(
+            self.request, 'UPDATE',
+            self.audit_model_name or instance.__class__.__name__,
+            instance.pk, str(instance),
+        )
+ 
+    def perform_destroy(self, instance):
+        model_name = self.audit_model_name or instance.__class__.__name__
+        pk_snapshot = instance.pk
+        repr_snapshot = str(instance)
+        instance.delete()
+        log_activity(self.request, 'DELETE', model_name, pk_snapshot, repr_snapshot)
+
 class ChangePasswordView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -262,19 +309,20 @@ class ChangePasswordView(APIView):
 # Core CRUD ViewSets
 # ============================================================
 
-class CourseViewSet(viewsets.ModelViewSet):
+class CourseViewSet(AuditLogMixin,viewsets.ModelViewSet):
     queryset = Course.objects.all()
     serializer_class = CourseSerializer
 
 
-class LecturerViewSet(viewsets.ModelViewSet):
+class LecturerViewSet(AuditLogMixin,viewsets.ModelViewSet):
     queryset = Lecturer.objects.all()
     serializer_class = LecturerSerializer
 
 
-class StudentAccountViewSet(viewsets.ModelViewSet):
+class StudentAccountViewSet(AuditLogMixin,viewsets.ModelViewSet):
     serializer_class = StudentAccountSerializer
     permission_classes = [IsAdminRole]
+    audit_model_name = 'Student'
 
     def get_queryset(self):
         return User.objects.select_related('profile', 'profile__student_group').filter(profile__role='STUDENT').order_by('username')
@@ -299,17 +347,17 @@ class LecturerMeViewSet(viewsets.ViewSet):
         return Response(serializer.data)
 
 
-class VenueViewSet(viewsets.ModelViewSet):
+class VenueViewSet(AuditLogMixin,viewsets.ModelViewSet):
     queryset = Venue.objects.all()
     serializer_class = VenueSerializer
 
 
-class StudentGroupViewSet(viewsets.ModelViewSet):
+class StudentGroupViewSet(AuditLogMixin,viewsets.ModelViewSet):
     queryset = StudentGroup.objects.all()
     serializer_class = StudentGroupSerializer
 
 
-class TimeSlotViewSet(viewsets.ModelViewSet):
+class TimeSlotViewSet(AuditLogMixin,viewsets.ModelViewSet):
     queryset = TimeSlot.objects.all()
     serializer_class = TimeSlotSerializer
 
@@ -350,6 +398,7 @@ class ScheduleSlotViewSet(viewsets.ModelViewSet):
         was_published = instance.is_published
 
         updated = serializer.save()
+        log_activity(self.request, 'UPDATE', 'ScheduleSlot', updated.pk, str(updated))
 
         timeslot_changed = updated.timeslot_id != old_timeslot_id
         venue_changed = updated.venue_id != old_venue_id
@@ -403,6 +452,7 @@ class ScheduleSlotViewSet(viewsets.ModelViewSet):
         )
 
     def perform_destroy(self, instance):
+        log_activity(self.request, 'DELETE', 'ScheduleSlot', instance.pk, str(instance))
         if instance.is_published:
             title = f"Cancelled: {instance.course.code}"
             message = (
@@ -443,6 +493,13 @@ class ScheduleSlotViewSet(viewsets.ModelViewSet):
             )
  
         instance.delete()
+
+    def perform_create(self, serializer):
+        instance = serializer.save()
+        log_activity(self.request, 'CREATE', 'ScheduleSlot', instance.pk, str(instance),
+                      details='Created as draft')
+ 
+
 
     @action(detail=False, methods=['get'], url_path='export-pdf')
     def export_pdf(self, request):
@@ -785,6 +842,7 @@ class AdminLecturerCreateView(APIView):
         )
 
         send_credentials_email(name, email, lecturer_id, raw_password, 'Lecturer')
+        log_activity(request, 'CREATE', 'Lecturer', lecturer.id, f'{name} ({lecturer_id})')
 
         return Response({
             'id': lecturer.id,
@@ -852,6 +910,7 @@ class AdminStudentCreateView(APIView):
         )
 
         send_credentials_email(name, email, registration_number, raw_password, 'Student')
+        log_activity(request, 'CREATE', 'Student', user.id, f'{name} ({registration_number})')
 
         return Response({
             'id': user.id,
@@ -964,6 +1023,9 @@ class AdminBulkStudentUploadView(APIView):
                 })
 
         success_count = sum(1 for r in results if r['status'] == 'success')
+        log_activity(request, 'BULK_UPLOAD', 'Student', None,
+                  f'Bulk upload: {success_count} succeeded, {len(results) - success_count} failed.')
+
         return Response({
             'total': len(results),
             'success_count': success_count,
@@ -1065,6 +1127,8 @@ class AdminBulkLecturerUploadView(APIView):
                 })
 
         success_count = sum(1 for r in results if r['status'] == 'success')
+        log_activity(request, 'BULK_UPLOAD', 'Lecturer', None,
+                  f'Bulk upload: {success_count} succeeded, {len(results) - success_count} failed.')
         return Response({
             'total': len(results),
             'success_count': success_count,
@@ -1422,6 +1486,9 @@ class AdminCurriculumView(APIView):
         courses_qs = Course.objects.filter(id__in=course_ids)
         group.courses.set(courses_qs)
 
+        log_activity(request, 'UPDATE', 'Curriculum', group.id,
+                   f'{group} — {len(course_ids)} course(s) set')
+
         return Response({
             'group_id': group.id,
             'course_ids': list(group.courses.values_list('id', flat=True)),
@@ -1484,6 +1551,7 @@ class AdminAccountsView(APIView):
         UserProfile.objects.create(user=user, role='ADMIN', must_change_password=True)
 
         send_credentials_email(name, email, email, raw_password, 'Admin')
+        log_activity(request, 'CREATE', 'Admin', user.id, f'{name} ({email})')
 
         return Response({
             'id': user.id,
@@ -1558,7 +1626,9 @@ class AdminTimetablePublishView(APIView):
  
         qs = ScheduleSlot.objects.filter(group__level=level, group__stream=stream, semester=semester)
         updated_count = qs.update(is_published=publish_state)
- 
+        log_activity(request, action.upper(), 'Timetable', None,
+                  f'Level {level} {stream} {semester} — {updated_count} classes')
+
         return Response({
             'level': level,
             'stream': stream,
@@ -1566,3 +1636,38 @@ class AdminTimetablePublishView(APIView):
             'action': action,
             'updated_count': updated_count,
         })
+
+
+class AdminActivityLogView(APIView):
+    """
+    GET /api/admin/activity-log/?action=&model_name=&actor_id=
+    Returns the most recent 300 entries, most recent first. All filters optional.
+    """
+    permission_classes = [IsAdminRole]
+ 
+    def get(self, request):
+        qs = AuditLog.objects.all()
+ 
+        if action := request.query_params.get('action'):
+            qs = qs.filter(action=action)
+        if model_name := request.query_params.get('model_name'):
+            qs = qs.filter(model_name=model_name)
+        if actor_id := request.query_params.get('actor_id'):
+            qs = qs.filter(actor_id=actor_id)
+ 
+        qs = qs[:300]
+ 
+        results = [
+            {
+                'id': log.id,
+                'actor_name': log.actor_name,
+                'action': log.action,
+                'model_name': log.model_name,
+                'object_id': log.object_id,
+                'object_repr': log.object_repr,
+                'details': log.details,
+                'created_at': log.created_at,
+            }
+            for log in qs
+        ]
+        return Response(results)
