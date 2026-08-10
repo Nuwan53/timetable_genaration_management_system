@@ -1183,8 +1183,8 @@ class AdminStudentBulkTemplateView(APIView):
 
         level_dv = DataValidation(type='list', formula1='"I,II,III"', allow_blank=True,
                                    errorTitle='Invalid Level', error='Must be I, II, or III')
-        stream_dv = DataValidation(type='list', formula1='"physical,bio,both"', allow_blank=True,
-                                    errorTitle='Invalid Stream', error='Must be physical, bio, or both')
+        stream_dv = DataValidation(type='list', formula1='"physical,bio"', allow_blank=True,
+                                    errorTitle='Invalid Stream', error='Must be physical or bio')
         ws.add_data_validation(level_dv)
         ws.add_data_validation(stream_dv)
         level_dv.add('D2:D500')
