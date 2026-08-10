@@ -1740,3 +1740,610 @@ tr:hover td { background: var(--surface-soft); }
     width: auto;
   }
 }
+
+/* ============================================================
+   Login v2 — split panel, navy + brass identity, light/dark aware
+   Append this to index.css. Your OLD .login-screen/.login-hero
+   rules from the previous Login design are now unused by this
+   JSX (different class names) — safe to leave them or delete
+   them later, they won't conflict.
+   ============================================================ */
+
+.login-split {
+  --lp-navy: #0d1b2a;
+  --lp-navy-2: #16293f;
+  --lp-navy-3: #1f3552;
+  --lp-brass: #c6963c;
+  --lp-brass-soft: #e4c77b;
+  --lp-brass-dim: rgba(198, 150, 60, 0.28);
+  --lp-paper: #faf8f3;
+  --lp-paper-dim: #f1ede2;
+  --lp-ink: #0f172a;
+  --lp-slate: #475569;
+  --lp-slate-light: #94a3b8;
+  --lp-border: #e2ddd0;
+  --lp-card-bg: #ffffff;
+  --lp-bg: var(--lp-paper);
+
+  min-height: 100vh;
+  display: flex;
+  background: var(--lp-bg);
+  font-family: 'Inter', system-ui, sans-serif;
+  transition: background 0.3s ease;
+}
+
+/* ---------- Dark mode ----------
+   Covers BOTH common toggling conventions so this works regardless
+   of how ThemeContext applies it — remove whichever block doesn't
+   apply once confirmed. */
+html.dark .login-split,
+html[data-theme='dark'] .login-split,
+body.dark .login-split,
+body[data-theme='dark'] .login-split {
+  --lp-bg: #0a1320;
+  --lp-card-bg: #101d30;
+  --lp-ink: #f1f5f9;
+  --lp-slate: #cbd5e1;
+  --lp-slate-light: #64748b;
+  --lp-border: #1f2f45;
+  --lp-paper-dim: #16293f;
+}
+
+.login-split * {
+  box-sizing: border-box;
+}
+
+/* ---------------- Left image panel ---------------- */
+
+.login-panel-image {
+  position: relative;
+  flex: 1.05;
+  min-width: 0;
+  overflow: hidden;
+  display: none; /* shown on wider screens below */
+}
+
+@media (min-width: 900px) {
+  .login-panel-image {
+    display: block;
+  }
+}
+
+.login-panel-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.login-panel-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(160deg, rgba(13, 27, 42, 0.94) 0%, rgba(22, 41, 63, 0.88) 55%, rgba(31, 53, 82, 0.8) 100%);
+}
+
+.login-panel-content {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 3rem;
+  color: var(--lp-paper);
+}
+
+.login-panel-badge {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--lp-brass-dim);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--lp-brass-soft);
+}
+
+.login-panel-badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--lp-brass-soft);
+  box-shadow: 0 0 8px var(--lp-brass-soft);
+}
+
+.login-panel-headline {
+  margin-top: 1.6rem;
+}
+
+.login-panel-headline h1 {
+  font-family: 'Fraunces', serif;
+  font-weight: 500;
+  font-size: clamp(2rem, 3vw, 2.7rem);
+  line-height: 1.14;
+  margin: 0 0 1rem;
+}
+
+.login-panel-headline h1 em {
+  font-style: italic;
+  color: var(--lp-brass-soft);
+}
+
+.login-panel-headline p {
+  font-size: 0.95rem;
+  line-height: 1.7;
+  color: rgba(250, 248, 243, 0.72);
+  max-width: 34ch;
+  margin: 0;
+}
+
+.login-panel-features {
+  display: flex;
+  gap: 12px;
+  margin-top: 1.8rem;
+  flex-wrap: wrap;
+}
+
+.login-panel-feature {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 12.5px;
+  color: rgba(250, 248, 243, 0.85);
+}
+
+.login-panel-feature svg {
+  color: var(--lp-brass-soft);
+  flex-shrink: 0;
+}
+
+.login-panel-tip {
+  margin-top: auto;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: rgba(250, 248, 243, 0.78);
+  max-width: 340px;
+}
+
+/* ---------------- Right form panel ---------------- */
+
+.login-panel-form {
+  position: relative;
+  flex: 0.95;
+  min-width: 340px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2.5rem;
+  background: var(--lp-bg);
+}
+
+.login-form-theme-btn {
+  position: absolute;
+  top: 1.5rem;
+  right: 1.5rem;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  border: 1px solid var(--lp-border);
+  background: var(--lp-card-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+
+.login-form-theme-btn:hover {
+  border-color: var(--lp-brass);
+  transform: translateY(-1px);
+}
+
+.theme-icon-wrap {
+  position: relative;
+  width: 18px;
+  height: 18px;
+}
+
+.theme-icon {
+  position: absolute;
+  inset: 0;
+  width: 18px;
+  height: 18px;
+  opacity: 0;
+  transform: scale(0.6) rotate(-30deg);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  color: var(--lp-slate);
+}
+
+.theme-icon.active {
+  opacity: 1;
+  transform: scale(1) rotate(0deg);
+  color: var(--lp-brass);
+}
+
+.login-form-inner {
+  width: 100%;
+  max-width: 380px;
+}
+
+.login-logo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 2.2rem;
+}
+
+.login-logo-mark {
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  background: var(--lp-navy);
+  color: var(--lp-brass-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.login-title {
+  font-weight: 700;
+  font-size: 0.98rem;
+  color: var(--lp-ink);
+}
+
+.login-subtitle {
+  font-size: 0.78rem;
+  color: var(--lp-slate-light);
+  margin-top: 2px;
+}
+
+.login-welcome {
+  margin-bottom: 1.8rem;
+}
+
+.login-welcome-heading {
+  font-family: 'Fraunces', serif;
+  font-weight: 500;
+  font-size: 1.5rem;
+  color: var(--lp-ink);
+  margin: 0 0 0.35rem;
+}
+
+.login-welcome-sub {
+  font-size: 0.88rem;
+  color: var(--lp-slate-light);
+  margin: 0;
+}
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+}
+
+.field-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--lp-ink);
+  margin: 0 0 0.4rem;
+}
+
+.login-input-wrap,
+.password-wrap {
+  position: relative;
+  margin-bottom: 1.1rem;
+}
+
+.login-input-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--lp-slate-light);
+  pointer-events: none;
+}
+
+.login-input {
+  width: 100%;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--lp-border);
+  border-radius: 10px;
+  background: var(--lp-card-bg);
+  color: var(--lp-ink);
+  font-size: 0.9rem;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.login-input--has-icon {
+  padding-left: 38px;
+}
+
+.login-input::placeholder {
+  color: var(--lp-slate-light);
+}
+
+.login-input:focus {
+  border-color: var(--lp-brass);
+  box-shadow: 0 0 0 3px var(--lp-brass-dim);
+}
+
+.login-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.password-wrap .login-input {
+  padding-right: 42px;
+}
+
+.pw-toggle {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  border-radius: 6px;
+}
+
+.pw-toggle:hover {
+  background: var(--lp-paper-dim);
+}
+
+.pw-icon-wrap {
+  position: relative;
+  width: 16px;
+  height: 16px;
+}
+
+.pw-icon {
+  position: absolute;
+  inset: 0;
+  width: 16px;
+  height: 16px;
+  opacity: 0;
+  transform: scale(0.7);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  color: var(--lp-slate-light);
+}
+
+.pw-icon.active {
+  opacity: 1;
+  transform: scale(1);
+  color: var(--lp-slate);
+}
+
+.login-btn {
+  margin-top: 0.6rem;
+  width: 100%;
+  padding: 0.82rem 1rem;
+  border: none;
+  border-radius: 10px;
+  background: var(--lp-navy);
+  color: var(--lp-brass-soft);
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: background 0.18s ease, transform 0.15s ease;
+}
+
+.login-btn:hover:not(:disabled) {
+  background: var(--lp-navy-3);
+  transform: translateY(-1px);
+}
+
+.login-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.login-btn-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(228, 199, 126, 0.35);
+  border-top-color: var(--lp-brass-soft);
+  border-radius: 50%;
+  animation: loginSpin 0.7s linear infinite;
+}
+
+@keyframes loginSpin {
+  to { transform: rotate(360deg); }
+}
+
+.login-footer {
+  margin-top: 2.2rem;
+  padding-top: 1.2rem;
+  border-top: 1px solid var(--lp-border);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  color: var(--lp-slate-light);
+  text-align: center;
+}
+
+@media (max-width: 480px) {
+  .login-panel-form {
+    padding: 1.6rem;
+  }
+}
+
+.logout-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: 100%;
+  padding: 9px 0;
+  border-radius: 10px;
+  border: 1px solid rgba(248, 113, 113, 0.28);
+  background: rgba(248, 113, 113, 0.1);
+  color: #fca5a5;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+ 
+.logout-btn:hover {
+  background: rgba(248, 113, 113, 0.18);
+  border-color: rgba(248, 113, 113, 0.45);
+  transform: translateY(-1px);
+}
+ 
+.logout-btn:active {
+  transform: translateY(0);
+}
+ 
+/* ---------- Role tabs / mode toggle (used on Bulk Registration,
+   Auto Scheduler, Admin Analytics free-slot finder) ---------- */
+ 
+.role-tabs {
+  display: flex;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 4px;
+  gap: 4px;
+}
+ 
+.role-tab {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: none;
+  background: transparent;
+  padding: 9px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #64748b;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
+  white-space: nowrap;
+}
+ 
+.role-tab:hover {
+  color: #0f172a;
+}
+ 
+.role-tab.active {
+  background: var(--navy, #0d1b2a);
+  color: #e4c77b;
+  box-shadow: 0 4px 12px rgba(13, 27, 42, 0.28);
+}
+ 
+/* ---------- Note / info box ---------- */
+ 
+.login-note-box {
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-left: 3px solid var(--accent, #2563eb);
+}
+ 
+.login-note-title {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #64748b;
+  margin-bottom: 6px;
+}
+ 
+.login-note {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #334155;
+  margin: 0;
+}
+ 
+/* ---------- Ghost button — more deliberate, less "unstyled default" ---------- */
+ 
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: #fff;
+  color: #0f172a;
+  border: 1.5px solid #dbe5f1;
+  padding: 9px 16px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+}
+ 
+.btn-ghost:hover:not(:disabled) {
+  border-color: var(--accent, #2563eb);
+  background: #f8fbff;
+  transform: translateY(-1px);
+}
+ 
+.btn-ghost:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+ 
+/* ---------- Custom file upload (replaces native <input type="file"> look) ---------- */
+ 
+.file-upload-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+ 
+.file-upload-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 16px;
+  border-radius: 10px;
+  border: 1.5px dashed #cbd5e1;
+  background: #f8fafc;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+ 
+.file-upload-btn:hover {
+  border-color: var(--accent, #2563eb);
+  background: #f0f7ff;
+}
+ 
+.file-upload-name {
+  font-size: 12.5px;
+  color: #64748b;
+}
+ 
+.file-upload-name strong {
+  color: #0f172a;
+}
