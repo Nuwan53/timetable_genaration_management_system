@@ -59,6 +59,21 @@ TIMES = ['08:00', '09:00', '10:00', '11:00', '12:00', '13:00',
 # ============================================================
 # Shared helpers
 # ============================================================
+def cell_style_for_pdf(base_style):
+    """
+    The cell text mixes bold/italic/small-font spans via inline <font>/<b>/<i>
+    tags, so it needs a plain paragraph style as the base rather than the
+    course_style's own alignment/leading being fought over — this just
+    returns a fresh style with the same alignment/leading so the HTML-ish
+    markup renders correctly.
+    """
+    from reportlab.lib.styles import ParagraphStyle
+    return ParagraphStyle(
+        'cellMixed', fontSize=8.5, fontName='Helvetica',
+        alignment=base_style.alignment, leading=11,
+        textColor=colors.HexColor('#0F172A'),
+    )
+
 def log_activity(request, action, model_name, object_id, object_repr, details=''):
     """
     Call this after any create/update/delete/publish action worth tracking.
@@ -520,14 +535,56 @@ class ScheduleSlotViewSet(viewsets.ModelViewSet):
             hour = slot.timeslot.start_time.strftime('%H:%M')
             grid[slot.timeslot.day][hour] = slot
  
+        def same_session(a, b):
+            return (
+                a.course_id == b.course_id and
+                a.lecturer_id == b.lecturer_id and
+                a.venue_id == b.venue_id and
+                a.group_id == b.group_id
+            )
+ 
+        # ---- Compute merge runs per day: which (day, TIMES-index) pairs are
+        # the START of a multi-hour session, how many rows they span, and
+        # which are CONTINUATIONS (must render as an empty cell, covered by
+        # the SPAN command from the row above). ----
+        span_commands = []          # [(col, start_row, end_row), ...] — table coords, row 0 = header
+        continuation_cells = set()  # {(day, time_str), ...}
+ 
+        for c_idx, day in enumerate(DAYS, start=1):
+            t_idx = 0
+            while t_idx < len(TIMES):
+                t = TIMES[t_idx]
+                slot = grid[day].get(t)
+                if not slot:
+                    t_idx += 1
+                    continue
+ 
+                span_len = 1
+                j = t_idx + 1
+                while j < len(TIMES):
+                    next_slot = grid[day].get(TIMES[j])
+                    if next_slot and same_session(slot, next_slot):
+                        span_len += 1
+                        j += 1
+                    else:
+                        break
+ 
+                if span_len > 1:
+                    start_row = t_idx + 1  # +1 to account for the header row
+                    end_row = start_row + span_len - 1
+                    span_commands.append((c_idx, start_row, end_row))
+                    for k in range(t_idx + 1, t_idx + span_len):
+                        continuation_cells.add((day, TIMES[k]))
+ 
+                t_idx = j
+ 
         # ---- Colour palette matching the web app's navy + brass identity ----
         navy = colors.HexColor('#0D1B2A')
         navy_soft = colors.HexColor('#16293F')
         brass = colors.HexColor('#C6963C')
-        brass_light = colors.HexColor('#FBF3E3')   # tint used behind filled cells
+        brass_light = colors.HexColor('#FBF3E3')
         border_grey = colors.HexColor('#D0DCE8')
         text_muted = colors.HexColor('#64748B')
-        text_dark = colors.HexColor('#0F172A')
  
         buffer = io.BytesIO()
         doc = SimpleDocTemplate(
@@ -536,10 +593,9 @@ class ScheduleSlotViewSet(viewsets.ModelViewSet):
             topMargin=1.4 * cm, bottomMargin=1.6 * cm,
         )
  
-        # ---- Header block (letterhead-style) ----
         eyebrow_style = ParagraphStyle(
             'eyebrow', fontSize=9, fontName='Helvetica-Bold', alignment=1,
-            textColor=brass, spaceAfter=2, tracking=1,
+            textColor=brass, spaceAfter=2,
         )
         title_style = ParagraphStyle(
             'title', fontSize=18, fontName='Helvetica-Bold', alignment=1,
@@ -556,7 +612,6 @@ class ScheduleSlotViewSet(viewsets.ModelViewSet):
         title = Paragraph(f"Level {level} Timetable — {stream_label}", title_style)
         subtitle = Paragraph(f"Semester {semester}", subtitle_style)
  
-        # ---- Table ----
         header_style = ParagraphStyle('hdr', fontSize=9, fontName='Helvetica-Bold',
                                       alignment=1, textColor=colors.white)
         time_style = ParagraphStyle('t', fontSize=8.5, fontName='Helvetica-Bold',
@@ -567,6 +622,8 @@ class ScheduleSlotViewSet(viewsets.ModelViewSet):
                                      alignment=1, textColor=brass, leading=10)
         lecturer_style = ParagraphStyle('lect', fontSize=7, fontName='Helvetica-Oblique',
                                         alignment=1, textColor=text_muted, leading=9)
+        duration_style = ParagraphStyle('dur', fontSize=6.5, fontName='Helvetica-Bold',
+                                        alignment=1, textColor=text_muted, leading=8)
  
         header_row = [Paragraph('Time', header_style)] + \
                      [Paragraph(d, header_style) for d in DAYS]
@@ -575,14 +632,31 @@ class ScheduleSlotViewSet(viewsets.ModelViewSet):
         for t in TIMES:
             row = [Paragraph(t, time_style)]
             for day in DAYS:
+                if (day, t) in continuation_cells:
+                    # Covered by a SPAN from an earlier row — must still be
+                    # a cell in the data grid, just empty.
+                    row.append('')
+                    continue
+ 
                 slot = grid[day].get(t)
                 if slot:
-                    cell_content = [
-                        Paragraph(slot.course.code, course_style),
-                        Paragraph(slot.venue.code, venue_style),
-                        Paragraph(slot.lecturer.name, lecturer_style),
-                    ]
-                    row.append(cell_content)
+                    # Figure out this run's length again just for the label
+                    # (cheap — TIMES is short — avoids threading extra state through)
+                    run_len = 1
+                    idx = TIMES.index(t)
+                    for k in range(idx + 1, len(TIMES)):
+                        nxt = grid[day].get(TIMES[k])
+                        if nxt and same_session(slot, nxt):
+                            run_len += 1
+                        else:
+                            break
+ 
+                    duration_html = f"{run_len}H SESSION<br/>" if run_len > 1 else ""
+                    txt = (f"<font size=6.5 color='#64748B'>{duration_html}</font>"
+                           f"<b>{slot.course.code}</b><br/>"
+                           f"{slot.venue.code}<br/>"
+                           f"<i>{slot.lecturer.name.split()[-1]}</i>")
+                    row.append(Paragraph(txt, cell_style_for_pdf(course_style)))
                 else:
                     row.append('')
             rows.append(row)
@@ -601,18 +675,25 @@ class ScheduleSlotViewSet(viewsets.ModelViewSet):
             ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
             ('ROWBACKGROUNDS', (1, 1), (-1, -1), [colors.white, colors.HexColor('#F7F9FC')]),
         ]
+ 
+        # Merge multi-hour sessions into one taller cell
+        for (col, start_row, end_row) in span_commands:
+            table_style.append(('SPAN', (col, start_row), (col, end_row)))
+ 
         tbl.setStyle(TableStyle(table_style))
  
-        # Tint filled cells with the brass-adjacent colour and a brass left-edge accent
+        # Tint filled cells (only the START cell of a run needs it — the
+        # SPAN visually covers the rest)
         for r_idx, t in enumerate(TIMES, start=1):
             for c_idx, day in enumerate(DAYS, start=1):
+                if (day, t) in continuation_cells:
+                    continue
                 if grid[day].get(t):
                     tbl.setStyle(TableStyle([
                         ('BACKGROUND', (c_idx, r_idx), (c_idx, r_idx), brass_light),
                         ('LINEBEFORE', (c_idx, r_idx), (c_idx, r_idx), 2, brass),
                     ]))
  
-        # ---- Footer (drawn on every page via canvas callback) ----
         generated_at = datetime.datetime.now().strftime('%d %b %Y, %H:%M')
  
         def draw_footer(canvas, doc_):
