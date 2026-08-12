@@ -1,7 +1,7 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { slots, courses, lecturers, venues, groups, timeslots } from '../api';
 // eslint-disable-next-line no-unused-vars
-import { Download, Plus, X, Upload as UploadIcon, EyeOff } from 'lucide-react';
+import { Download, Plus, X, Upload as UploadIcon, EyeOff, Users } from 'lucide-react';
 import Modal from '../components/Modal';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
@@ -16,20 +16,22 @@ api.interceptors.request.use((config) => {
 
 const DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday'];
 
-// Two ScheduleSlots count as "the same session" if they're the exact same
-// course/lecturer/venue/group — this is what makes consecutive hours mergeable.
+// Two AGGREGATED cells count as "the same session" (mergeable across hours)
+// if course/lecturer/venue match. Group membership is intentionally NOT
+// part of this check — a cell already represents every group attending
+// that class, whether it's 1 group or many (a combined lecture).
 function sameSession(a, b) {
   return (
     a.course.id === b.course.id &&
     a.lecturer.id === b.lecturer.id &&
-    a.venue.id === b.venue.id &&
-    a.group.id === b.group.id
+    a.venue.id === b.venue.id
   );
 }
 
 export default function Timetable() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
+  const loadRequestIdRef = useRef(0);
 
   const [slotList, setSlotList]   = useState([]);
   const [allTimeslots, setAllTS]  = useState([]);
@@ -53,8 +55,15 @@ export default function Timetable() {
 
   const loadSlots = useCallback(() => {
     setLoading(true);
+    const requestId = ++loadRequestIdRef.current;
     slots.list({ level: filterLevel, stream: filterStream, semester: filterSem })
-      .then(r => { setSlotList(r.data); setLoading(false); });
+      .then(r => {
+        // If a NEWER load has started since this one fired, this response
+        // is stale — ignore it so it can't overwrite fresher data.
+        if (requestId !== loadRequestIdRef.current) return;
+        setSlotList(r.data);
+        setLoading(false);
+      });
   }, [filterLevel, filterStream, filterSem]);
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -73,17 +82,45 @@ export default function Timetable() {
     allTimeslots.map(ts => [ts.start_time, ts])
   ).values()].sort((a,b) => a.start_time.localeCompare(b.start_time));
 
-  // Build grid: grid[day][start_time] = slot
-  const grid = {};
-  DAYS.forEach(d => { grid[d] = {}; });
-  slotList.forEach(slot => {
-    const day   = slot.timeslot.day;
-    const time  = slot.timeslot.start_time;
-    grid[day][time] = slot;
-  });
+  // ---- Aggregated grid: grid[day][start_time] = { course, lecturer,
+  // venue, timeslot, ids: [...all ScheduleSlot ids sharing this class],
+  // groups: [...all group display names attending] }
+  // Every ScheduleSlot row for the same day+time+course+lecturer+venue
+  // gets folded into ONE cell, instead of one silently overwriting another. ----
+  const grid = useMemo(() => {
+    const g = {};
+    DAYS.forEach(d => { g[d] = {}; });
+
+    slotList.forEach(slot => {
+      const day = slot.timeslot.day;
+      const time = slot.timeslot.start_time;
+      const existing = g[day][time];
+
+      if (!existing) {
+        g[day][time] = {
+          course: slot.course,
+          lecturer: slot.lecturer,
+          venue: slot.venue,
+          timeslot: slot.timeslot,
+          is_published: slot.is_published,
+          ids: [slot.id],
+          groups: [slot.group.display || String(slot.group)],
+        };
+      } else {
+        // Same course+lecturer+venue+time already recorded (a combined
+        // lecture) — fold this group into the existing cell rather than
+        // overwriting it.
+        existing.ids.push(slot.id);
+        existing.groups.push(slot.group.display || String(slot.group));
+        if (!slot.is_published) existing.is_published = false;
+      }
+    });
+
+    return g;
+  }, [slotList]);
 
   // ---- Merge layout: for each day, figure out which cells are the START
-  // of a multi-hour run (get a rowSpan + all slot ids in the run) and
+  // of a multi-hour run (get a rowSpan + all slot ids across the run) and
   // which cells are CONTINUATIONS (render nothing — covered by the
   // rowSpan above). Relies on uniqueTimes already being sorted hourly
   // with no gaps, so array-adjacency == time-adjacency. ----
@@ -94,10 +131,10 @@ export default function Timetable() {
       let i = 0;
       while (i < uniqueTimes.length) {
         const ts = uniqueTimes[i];
-        const slot = grid[day][ts.start_time];
+        const cell = grid[day][ts.start_time];
 
-        if (!slot) {
-          layout[ts.start_time] = { skip: false, rowSpan: 1, slot: null, slotIds: [] };
+        if (!cell) {
+          layout[ts.start_time] = { skip: false, rowSpan: 1, cell: null, allIds: [] };
           i += 1;
           continue;
         }
@@ -105,8 +142,8 @@ export default function Timetable() {
         let span = 1;
         let j = i + 1;
         while (j < uniqueTimes.length) {
-          const nextSlot = grid[day][uniqueTimes[j].start_time];
-          if (nextSlot && sameSession(slot, nextSlot)) {
+          const nextCell = grid[day][uniqueTimes[j].start_time];
+          if (nextCell && sameSession(cell, nextCell)) {
             span += 1;
             j += 1;
           } else {
@@ -114,13 +151,13 @@ export default function Timetable() {
           }
         }
 
-        const slotIds = [];
+        const allIds = [];
         for (let k = i; k < i + span; k++) {
-          const s = grid[day][uniqueTimes[k].start_time];
-          if (s) slotIds.push(s.id);
+          const c = grid[day][uniqueTimes[k].start_time];
+          if (c) allIds.push(...c.ids);
         }
 
-        layout[ts.start_time] = { skip: false, rowSpan: span, slot, slotIds };
+        layout[ts.start_time] = { skip: false, rowSpan: span, cell, allIds };
         for (let k = i + 1; k < i + span; k++) {
           layout[uniqueTimes[k].start_time] = { skip: true };
         }
@@ -130,8 +167,7 @@ export default function Timetable() {
       layouts[day] = layout;
     });
     return layouts;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slotList, allTimeslots]);
+  }, [grid, uniqueTimes]);
 
   const draftCount = useMemo(() => slotList.filter(s => !s.is_published).length, [slotList]);
   const publishedCount = slotList.length - draftCount;
@@ -155,12 +191,33 @@ export default function Timetable() {
     setShowForm(true);
   };
 
-  const deleteSlot = async (ids, e) => {
+  const deleteSlot = async (ids, groupCount, e) => {
     e.stopPropagation();
     if (!isAdmin || !ids || ids.length === 0) return;
-    await Promise.all(ids.map(id => slots.remove(id)));
-    toast.success(ids.length > 1 ? `${ids.length}-hour session removed` : 'Slot removed');
-    loadSlots();
+
+    if (groupCount > 1) {
+      const confirmed = window.confirm(
+        `This class is shared across ${groupCount} student group(s). Deleting it will remove it for all of them. Continue?`
+      );
+      if (!confirmed) return;
+    }
+
+    // Optimistic update — remove it from local state immediately, so the
+    // cell disappears the instant you click, with no wait on the network
+    // round-trip and no window for a race condition to show stale data.
+    const idSet = new Set(ids);
+    setSlotList((current) => current.filter((s) => !idSet.has(s.id)));
+
+    try {
+      await Promise.all(ids.map(id => slots.remove(id)));
+      toast.success(`Removed (${ids.length} record${ids.length > 1 ? 's' : ''})`);
+    } catch {
+      toast.error('Delete failed — restoring');
+    } finally {
+      // Resync with the server either way — confirms success, or restores
+      // the correct state if the delete actually failed server-side.
+      loadSlots();
+    }
   };
 
   const saveSlot = async () => {
@@ -349,22 +406,24 @@ export default function Timetable() {
                   <tr key={ts.id}>
                     <td className="time-col">{ts.start_time.slice(0,5)}<br/><span style={{ fontSize: 9, opacity: .7 }}>{ts.end_time.slice(0,5)}</span></td>
                     {DAYS.map(day => {
-                      const cellInfo = dayLayouts[day]?.[ts.start_time];
-                      if (!cellInfo || cellInfo.skip) return null; // covered by a rowSpan above — no <td> here at all
+                      const layoutInfo = dayLayouts[day]?.[ts.start_time];
+                      if (!layoutInfo || layoutInfo.skip) return null; // covered by a rowSpan above
 
-                      const { rowSpan, slot, slotIds } = cellInfo;
+                      const { rowSpan, cell, allIds } = layoutInfo;
                       const tsForDay = allTimeslots.find(t => t.day === day && t.start_time === ts.start_time);
-                      const isDraft = slot && isAdmin && !slot.is_published;
+                      const isDraft = cell && isAdmin && !cell.is_published;
+                      const groupCount = cell ? cell.groups.length : 0;
 
                       return (
                         <td
                           key={day}
                           rowSpan={rowSpan}
-                          onClick={() => isAdmin && !slot && tsForDay && openAdd(tsForDay.id, day)}
+                          onClick={() => isAdmin && !cell && tsForDay && openAdd(tsForDay.id, day)}
                         >
-                          {slot ? (
+                          {cell ? (
                             <div
                               className="slot-cell"
+                              title={groupCount > 1 ? `Groups: ${cell.groups.join(', ')}` : undefined}
                               style={{
                                 cursor: isAdmin ? 'pointer' : 'default',
                                 height: '100%',
@@ -382,17 +441,24 @@ export default function Timetable() {
                                   DRAFT
                                 </div>
                               )}
-                              {rowSpan > 1 && (
-                                <div style={{ fontSize: 8, fontWeight: 700, letterSpacing: 0.4, opacity: 0.75, marginBottom: 2 }}>
-                                  {rowSpan}H SESSION
-                                </div>
-                              )}
-                              <div style={{fontWeight:600}}>{slot.course.code}</div>
-                              <div style={{opacity:.85}}>{slot.venue.code}</div>
-                              <div style={{opacity:.7,fontSize:10}}>{slot.lecturer.name.split(' ').pop()}</div>
+                              <div style={{ display: 'flex', gap: 4, justifyContent: 'center', marginBottom: 2, flexWrap: 'wrap' }}>
+                                {rowSpan > 1 && (
+                                  <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: 0.4, opacity: 0.75 }}>
+                                    {rowSpan}H
+                                  </span>
+                                )}
+                                {groupCount > 1 && (
+                                  <span style={{ fontSize: 8, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 2, opacity: 0.85 }}>
+                                    <Users size={9} /> {groupCount}
+                                  </span>
+                                )}
+                              </div>
+                              <div style={{fontWeight:600}}>{cell.course.code}</div>
+                              <div style={{opacity:.85}}>{cell.venue.code}</div>
+                              <div style={{opacity:.7,fontSize:10}}>{cell.lecturer.name.split(' ').pop()}</div>
                               {isAdmin && (
                                 <button className="slot-del btn" style={{background:'transparent',padding:0,color:'#fff',fontSize:12}}
-                                  onClick={e => deleteSlot(slotIds, e)}>
+                                  onClick={e => deleteSlot(allIds, groupCount, e)}>
                                   <X size={12}/>
                                 </button>
                               )}
@@ -428,9 +494,9 @@ export default function Timetable() {
           <div className="login-note-box" style={{ marginBottom: 16 }}>
             <div className="login-note" style={{ textAlign: 'left', margin: 0 }}>
               New slots are saved as <strong>draft</strong> — students and lecturers won't see this
-              until you click <strong>Publish</strong> on the Timetable page. For a multi-hour
-              session (lab, practical), add this same course/lecturer/venue to each consecutive
-              hour — the grid will automatically merge them into one taller cell.
+              until you click <strong>Publish</strong>. Ticking multiple groups creates one combined
+              class (shown with a group-count badge). Adding the same course/lecturer/venue to
+              consecutive hours merges them into one taller cell.
             </div>
           </div>
 
