@@ -29,7 +29,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from .models import (
     Course, Lecturer, Venue, StudentGroup, TimeSlot, ScheduleSlot,
     LecturerRequest, LecturerNotification, Announcement, StudentNotification,
-    UserProfile,
+    UserProfile, AuditLog
 )
 from .serializers import (
     CourseSerializer, LecturerSerializer, VenueSerializer,
@@ -59,6 +59,42 @@ TIMES = ['08:00', '09:00', '10:00', '11:00', '12:00', '13:00',
 # ============================================================
 # Shared helpers
 # ============================================================
+def cell_style_for_pdf(base_style):
+    """
+    The cell text mixes bold/italic/small-font spans via inline <font>/<b>/<i>
+    tags, so it needs a plain paragraph style as the base rather than the
+    course_style's own alignment/leading being fought over — this just
+    returns a fresh style with the same alignment/leading so the HTML-ish
+    markup renders correctly.
+    """
+    from reportlab.lib.styles import ParagraphStyle
+    return ParagraphStyle(
+        'cellMixed', fontSize=8.5, fontName='Helvetica',
+        alignment=base_style.alignment, leading=11,
+        textColor=colors.HexColor('#0F172A'),
+    )
+
+def log_activity(request, action, model_name, object_id, object_repr, details=''):
+    """
+    Call this after any create/update/delete/publish action worth tracking.
+    Never raises — a logging failure should never break the actual
+    operation it's trying to record.
+    """
+    try:
+        actor = getattr(request, 'user', None)
+        actor_name = actor.get_full_name().strip() or actor.username if actor and actor.is_authenticated else 'Unknown'
+        AuditLog.objects.create(
+            actor=actor if actor and actor.is_authenticated else None,
+            actor_name=actor_name,
+            action=action,
+            model_name=model_name,
+            object_id=str(object_id) if object_id is not None else None,
+            object_repr=str(object_repr)[:255],
+            details=details,
+        )
+    except Exception:
+        pass
+
 
 def parse_uploaded_file(file):
     """
@@ -228,6 +264,32 @@ def auth_login(request):
     })
 
 
+class AuditLogMixin:
+    audit_model_name = None  # optional override; defaults to the instance's class name
+ 
+    def perform_create(self, serializer):
+        instance = serializer.save()
+        log_activity(
+            self.request, 'CREATE',
+            self.audit_model_name or instance.__class__.__name__,
+            instance.pk, str(instance),
+        )
+ 
+    def perform_update(self, serializer):
+        instance = serializer.save()
+        log_activity(
+            self.request, 'UPDATE',
+            self.audit_model_name or instance.__class__.__name__,
+            instance.pk, str(instance),
+        )
+ 
+    def perform_destroy(self, instance):
+        model_name = self.audit_model_name or instance.__class__.__name__
+        pk_snapshot = instance.pk
+        repr_snapshot = str(instance)
+        instance.delete()
+        log_activity(self.request, 'DELETE', model_name, pk_snapshot, repr_snapshot)
+
 class ChangePasswordView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -262,19 +324,20 @@ class ChangePasswordView(APIView):
 # Core CRUD ViewSets
 # ============================================================
 
-class CourseViewSet(viewsets.ModelViewSet):
+class CourseViewSet(AuditLogMixin,viewsets.ModelViewSet):
     queryset = Course.objects.all()
     serializer_class = CourseSerializer
 
 
-class LecturerViewSet(viewsets.ModelViewSet):
+class LecturerViewSet(AuditLogMixin,viewsets.ModelViewSet):
     queryset = Lecturer.objects.all()
     serializer_class = LecturerSerializer
 
 
-class StudentAccountViewSet(viewsets.ModelViewSet):
+class StudentAccountViewSet(AuditLogMixin,viewsets.ModelViewSet):
     serializer_class = StudentAccountSerializer
     permission_classes = [IsAdminRole]
+    audit_model_name = 'Student'
 
     def get_queryset(self):
         return User.objects.select_related('profile', 'profile__student_group').filter(profile__role='STUDENT').order_by('username')
@@ -299,17 +362,17 @@ class LecturerMeViewSet(viewsets.ViewSet):
         return Response(serializer.data)
 
 
-class VenueViewSet(viewsets.ModelViewSet):
+class VenueViewSet(AuditLogMixin,viewsets.ModelViewSet):
     queryset = Venue.objects.all()
     serializer_class = VenueSerializer
 
 
-class StudentGroupViewSet(viewsets.ModelViewSet):
+class StudentGroupViewSet(AuditLogMixin,viewsets.ModelViewSet):
     queryset = StudentGroup.objects.all()
     serializer_class = StudentGroupSerializer
 
 
-class TimeSlotViewSet(viewsets.ModelViewSet):
+class TimeSlotViewSet(AuditLogMixin,viewsets.ModelViewSet):
     queryset = TimeSlot.objects.all()
     serializer_class = TimeSlotSerializer
 
@@ -350,6 +413,7 @@ class ScheduleSlotViewSet(viewsets.ModelViewSet):
         was_published = instance.is_published
 
         updated = serializer.save()
+        log_activity(self.request, 'UPDATE', 'ScheduleSlot', updated.pk, str(updated))
 
         timeslot_changed = updated.timeslot_id != old_timeslot_id
         venue_changed = updated.venue_id != old_venue_id
@@ -403,6 +467,7 @@ class ScheduleSlotViewSet(viewsets.ModelViewSet):
         )
 
     def perform_destroy(self, instance):
+        log_activity(self.request, 'DELETE', 'ScheduleSlot', instance.pk, str(instance))
         if instance.is_published:
             title = f"Cancelled: {instance.course.code}"
             message = (
@@ -444,6 +509,13 @@ class ScheduleSlotViewSet(viewsets.ModelViewSet):
  
         instance.delete()
 
+    def perform_create(self, serializer):
+        instance = serializer.save()
+        log_activity(self.request, 'CREATE', 'ScheduleSlot', instance.pk, str(instance),
+                      details='Created as draft')
+ 
+
+
     @action(detail=False, methods=['get'], url_path='export-pdf')
     def export_pdf(self, request):
         level = request.query_params.get('level', 'I')
@@ -463,14 +535,56 @@ class ScheduleSlotViewSet(viewsets.ModelViewSet):
             hour = slot.timeslot.start_time.strftime('%H:%M')
             grid[slot.timeslot.day][hour] = slot
  
+        def same_session(a, b):
+            return (
+                a.course_id == b.course_id and
+                a.lecturer_id == b.lecturer_id and
+                a.venue_id == b.venue_id and
+                a.group_id == b.group_id
+            )
+ 
+        # ---- Compute merge runs per day: which (day, TIMES-index) pairs are
+        # the START of a multi-hour session, how many rows they span, and
+        # which are CONTINUATIONS (must render as an empty cell, covered by
+        # the SPAN command from the row above). ----
+        span_commands = []          # [(col, start_row, end_row), ...] — table coords, row 0 = header
+        continuation_cells = set()  # {(day, time_str), ...}
+ 
+        for c_idx, day in enumerate(DAYS, start=1):
+            t_idx = 0
+            while t_idx < len(TIMES):
+                t = TIMES[t_idx]
+                slot = grid[day].get(t)
+                if not slot:
+                    t_idx += 1
+                    continue
+ 
+                span_len = 1
+                j = t_idx + 1
+                while j < len(TIMES):
+                    next_slot = grid[day].get(TIMES[j])
+                    if next_slot and same_session(slot, next_slot):
+                        span_len += 1
+                        j += 1
+                    else:
+                        break
+ 
+                if span_len > 1:
+                    start_row = t_idx + 1  # +1 to account for the header row
+                    end_row = start_row + span_len - 1
+                    span_commands.append((c_idx, start_row, end_row))
+                    for k in range(t_idx + 1, t_idx + span_len):
+                        continuation_cells.add((day, TIMES[k]))
+ 
+                t_idx = j
+ 
         # ---- Colour palette matching the web app's navy + brass identity ----
         navy = colors.HexColor('#0D1B2A')
         navy_soft = colors.HexColor('#16293F')
         brass = colors.HexColor('#C6963C')
-        brass_light = colors.HexColor('#FBF3E3')   # tint used behind filled cells
+        brass_light = colors.HexColor('#FBF3E3')
         border_grey = colors.HexColor('#D0DCE8')
         text_muted = colors.HexColor('#64748B')
-        text_dark = colors.HexColor('#0F172A')
  
         buffer = io.BytesIO()
         doc = SimpleDocTemplate(
@@ -479,10 +593,9 @@ class ScheduleSlotViewSet(viewsets.ModelViewSet):
             topMargin=1.4 * cm, bottomMargin=1.6 * cm,
         )
  
-        # ---- Header block (letterhead-style) ----
         eyebrow_style = ParagraphStyle(
             'eyebrow', fontSize=9, fontName='Helvetica-Bold', alignment=1,
-            textColor=brass, spaceAfter=2, tracking=1,
+            textColor=brass, spaceAfter=2,
         )
         title_style = ParagraphStyle(
             'title', fontSize=18, fontName='Helvetica-Bold', alignment=1,
@@ -499,7 +612,6 @@ class ScheduleSlotViewSet(viewsets.ModelViewSet):
         title = Paragraph(f"Level {level} Timetable — {stream_label}", title_style)
         subtitle = Paragraph(f"Semester {semester}", subtitle_style)
  
-        # ---- Table ----
         header_style = ParagraphStyle('hdr', fontSize=9, fontName='Helvetica-Bold',
                                       alignment=1, textColor=colors.white)
         time_style = ParagraphStyle('t', fontSize=8.5, fontName='Helvetica-Bold',
@@ -510,6 +622,8 @@ class ScheduleSlotViewSet(viewsets.ModelViewSet):
                                      alignment=1, textColor=brass, leading=10)
         lecturer_style = ParagraphStyle('lect', fontSize=7, fontName='Helvetica-Oblique',
                                         alignment=1, textColor=text_muted, leading=9)
+        duration_style = ParagraphStyle('dur', fontSize=6.5, fontName='Helvetica-Bold',
+                                        alignment=1, textColor=text_muted, leading=8)
  
         header_row = [Paragraph('Time', header_style)] + \
                      [Paragraph(d, header_style) for d in DAYS]
@@ -518,14 +632,31 @@ class ScheduleSlotViewSet(viewsets.ModelViewSet):
         for t in TIMES:
             row = [Paragraph(t, time_style)]
             for day in DAYS:
+                if (day, t) in continuation_cells:
+                    # Covered by a SPAN from an earlier row — must still be
+                    # a cell in the data grid, just empty.
+                    row.append('')
+                    continue
+ 
                 slot = grid[day].get(t)
                 if slot:
-                    cell_content = [
-                        Paragraph(slot.course.code, course_style),
-                        Paragraph(slot.venue.code, venue_style),
-                        Paragraph(slot.lecturer.name, lecturer_style),
-                    ]
-                    row.append(cell_content)
+                    # Figure out this run's length again just for the label
+                    # (cheap — TIMES is short — avoids threading extra state through)
+                    run_len = 1
+                    idx = TIMES.index(t)
+                    for k in range(idx + 1, len(TIMES)):
+                        nxt = grid[day].get(TIMES[k])
+                        if nxt and same_session(slot, nxt):
+                            run_len += 1
+                        else:
+                            break
+ 
+                    duration_html = f"{run_len}H SESSION<br/>" if run_len > 1 else ""
+                    txt = (f"<font size=6.5 color='#64748B'>{duration_html}</font>"
+                           f"<b>{slot.course.code}</b><br/>"
+                           f"{slot.venue.code}<br/>"
+                           f"<i>{slot.lecturer.name.split()[-1]}</i>")
+                    row.append(Paragraph(txt, cell_style_for_pdf(course_style)))
                 else:
                     row.append('')
             rows.append(row)
@@ -544,18 +675,25 @@ class ScheduleSlotViewSet(viewsets.ModelViewSet):
             ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
             ('ROWBACKGROUNDS', (1, 1), (-1, -1), [colors.white, colors.HexColor('#F7F9FC')]),
         ]
+ 
+        # Merge multi-hour sessions into one taller cell
+        for (col, start_row, end_row) in span_commands:
+            table_style.append(('SPAN', (col, start_row), (col, end_row)))
+ 
         tbl.setStyle(TableStyle(table_style))
  
-        # Tint filled cells with the brass-adjacent colour and a brass left-edge accent
+        # Tint filled cells (only the START cell of a run needs it — the
+        # SPAN visually covers the rest)
         for r_idx, t in enumerate(TIMES, start=1):
             for c_idx, day in enumerate(DAYS, start=1):
+                if (day, t) in continuation_cells:
+                    continue
                 if grid[day].get(t):
                     tbl.setStyle(TableStyle([
                         ('BACKGROUND', (c_idx, r_idx), (c_idx, r_idx), brass_light),
                         ('LINEBEFORE', (c_idx, r_idx), (c_idx, r_idx), 2, brass),
                     ]))
  
-        # ---- Footer (drawn on every page via canvas callback) ----
         generated_at = datetime.datetime.now().strftime('%d %b %Y, %H:%M')
  
         def draw_footer(canvas, doc_):
@@ -785,6 +923,7 @@ class AdminLecturerCreateView(APIView):
         )
 
         send_credentials_email(name, email, lecturer_id, raw_password, 'Lecturer')
+        log_activity(request, 'CREATE', 'Lecturer', lecturer.id, f'{name} ({lecturer_id})')
 
         return Response({
             'id': lecturer.id,
@@ -852,6 +991,7 @@ class AdminStudentCreateView(APIView):
         )
 
         send_credentials_email(name, email, registration_number, raw_password, 'Student')
+        log_activity(request, 'CREATE', 'Student', user.id, f'{name} ({registration_number})')
 
         return Response({
             'id': user.id,
@@ -964,6 +1104,9 @@ class AdminBulkStudentUploadView(APIView):
                 })
 
         success_count = sum(1 for r in results if r['status'] == 'success')
+        log_activity(request, 'BULK_UPLOAD', 'Student', None,
+                  f'Bulk upload: {success_count} succeeded, {len(results) - success_count} failed.')
+
         return Response({
             'total': len(results),
             'success_count': success_count,
@@ -1065,6 +1208,8 @@ class AdminBulkLecturerUploadView(APIView):
                 })
 
         success_count = sum(1 for r in results if r['status'] == 'success')
+        log_activity(request, 'BULK_UPLOAD', 'Lecturer', None,
+                  f'Bulk upload: {success_count} succeeded, {len(results) - success_count} failed.')
         return Response({
             'total': len(results),
             'success_count': success_count,
@@ -1119,8 +1264,8 @@ class AdminStudentBulkTemplateView(APIView):
 
         level_dv = DataValidation(type='list', formula1='"I,II,III"', allow_blank=True,
                                    errorTitle='Invalid Level', error='Must be I, II, or III')
-        stream_dv = DataValidation(type='list', formula1='"physical,bio,both"', allow_blank=True,
-                                    errorTitle='Invalid Stream', error='Must be physical, bio, or both')
+        stream_dv = DataValidation(type='list', formula1='"physical,bio"', allow_blank=True,
+                                    errorTitle='Invalid Stream', error='Must be physical or bio')
         ws.add_data_validation(level_dv)
         ws.add_data_validation(stream_dv)
         level_dv.add('D2:D500')
@@ -1422,6 +1567,9 @@ class AdminCurriculumView(APIView):
         courses_qs = Course.objects.filter(id__in=course_ids)
         group.courses.set(courses_qs)
 
+        log_activity(request, 'UPDATE', 'Curriculum', group.id,
+                   f'{group} — {len(course_ids)} course(s) set')
+
         return Response({
             'group_id': group.id,
             'course_ids': list(group.courses.values_list('id', flat=True)),
@@ -1484,6 +1632,7 @@ class AdminAccountsView(APIView):
         UserProfile.objects.create(user=user, role='ADMIN', must_change_password=True)
 
         send_credentials_email(name, email, email, raw_password, 'Admin')
+        log_activity(request, 'CREATE', 'Admin', user.id, f'{name} ({email})')
 
         return Response({
             'id': user.id,
@@ -1558,7 +1707,9 @@ class AdminTimetablePublishView(APIView):
  
         qs = ScheduleSlot.objects.filter(group__level=level, group__stream=stream, semester=semester)
         updated_count = qs.update(is_published=publish_state)
- 
+        log_activity(request, action.upper(), 'Timetable', None,
+                  f'Level {level} {stream} {semester} — {updated_count} classes')
+
         return Response({
             'level': level,
             'stream': stream,
@@ -1566,3 +1717,38 @@ class AdminTimetablePublishView(APIView):
             'action': action,
             'updated_count': updated_count,
         })
+
+
+class AdminActivityLogView(APIView):
+    """
+    GET /api/admin/activity-log/?action=&model_name=&actor_id=
+    Returns the most recent 300 entries, most recent first. All filters optional.
+    """
+    permission_classes = [IsAdminRole]
+ 
+    def get(self, request):
+        qs = AuditLog.objects.all()
+ 
+        if action := request.query_params.get('action'):
+            qs = qs.filter(action=action)
+        if model_name := request.query_params.get('model_name'):
+            qs = qs.filter(model_name=model_name)
+        if actor_id := request.query_params.get('actor_id'):
+            qs = qs.filter(actor_id=actor_id)
+ 
+        qs = qs[:300]
+ 
+        results = [
+            {
+                'id': log.id,
+                'actor_name': log.actor_name,
+                'action': log.action,
+                'model_name': log.model_name,
+                'object_id': log.object_id,
+                'object_repr': log.object_repr,
+                'details': log.details,
+                'created_at': log.created_at,
+            }
+            for log in qs
+        ]
+        return Response(results)

@@ -206,3 +206,29 @@ class UserProfile(models.Model):
 
     def __str__(self):
         return f'{self.user.username} ({self.role})'
+
+
+class AuditLog(models.Model):
+    ACTION_CHOICES = [
+        ('CREATE', 'Create'),
+        ('UPDATE', 'Update'),
+        ('DELETE', 'Delete'),
+        ('PUBLISH', 'Publish'),
+        ('UNPUBLISH', 'Unpublish'),
+        ('BULK_UPLOAD', 'Bulk Upload'),
+    ]
+
+    actor = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='audit_logs')
+    actor_name = models.CharField(max_length=150)  # snapshot, so the log stays readable even if the user is later deleted
+    action = models.CharField(max_length=20, choices=ACTION_CHOICES)
+    model_name = models.CharField(max_length=100)
+    object_id = models.CharField(max_length=50, blank=True, null=True)
+    object_repr = models.CharField(max_length=255, blank=True)
+    details = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.actor_name} {self.action} {self.model_name} — {self.object_repr}'

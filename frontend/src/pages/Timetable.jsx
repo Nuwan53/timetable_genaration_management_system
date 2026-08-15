@@ -1,13 +1,13 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { slots, courses, lecturers, venues, groups, timeslots } from '../api';
-import { Download, X, Upload as UploadIcon, EyeOff } from 'lucide-react';
-import ConfirmDelete from '../components/ConfirmDelete';
+// eslint-disable-next-line no-unused-vars
+import { Download, Plus, X, Upload as UploadIcon, EyeOff, Users } from 'lucide-react';
 import Modal from '../components/Modal';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
 import axios from 'axios';
 
-const api = axios.create({ baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api' });
+const api = axios.create({ baseURL: 'http://localhost:8000/api' });
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('tms_token');
   if (token) config.headers.Authorization = `Bearer ${token}`;
@@ -16,9 +16,22 @@ api.interceptors.request.use((config) => {
 
 const DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday'];
 
+// Two AGGREGATED cells count as "the same session" (mergeable across hours)
+// if course/lecturer/venue match. Group membership is intentionally NOT
+// part of this check — a cell already represents every group attending
+// that class, whether it's 1 group or many (a combined lecture).
+function sameSession(a, b) {
+  return (
+    a.course.id === b.course.id &&
+    a.lecturer.id === b.lecturer.id &&
+    a.venue.id === b.venue.id
+  );
+}
+
 export default function Timetable() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
+  const loadRequestIdRef = useRef(0);
 
   const [slotList, setSlotList]   = useState([]);
   const [allTimeslots, setAllTS]  = useState([]);
@@ -29,25 +42,28 @@ export default function Timetable() {
   const [publishing, setPublishing] = useState(false);
 
   // Form data
-  const [deletingSlot, setDeletingSlot] = useState(null);
-  const [editingSlot, setEditingSlot] = useState(null);
   const [showForm, setShowForm]   = useState(false);
+  // eslint-disable-next-line no-unused-vars
   const [clickedSlot, setClicked] = useState(null); // {timeslot_id, day}
   const [form, setForm]           = useState({});
   const [conflicts, setConflicts] = useState([]);
-  const [searchQuery, setSearchQuery] = useState('');
   const [allCourses, setAllCourses]   = useState([]);
   const [allLecturers, setAllLect]    = useState([]);
   const [allVenues, setAllVenues]     = useState([]);
   const [allGroups, setAllGroups]     = useState([]);
   const [saving, setSaving]           = useState(false);
-  const [viewMode, setViewMode]       = useState('weekly');
-  const [selectedDay, setSelectedDay] = useState('Monday');
 
   const loadSlots = useCallback(() => {
     setLoading(true);
+    const requestId = ++loadRequestIdRef.current;
     slots.list({ level: filterLevel, stream: filterStream, semester: filterSem })
-      .then(r => { setSlotList(r.data); setLoading(false); });
+      .then(r => {
+        // If a NEWER load has started since this one fired, this response
+        // is stale — ignore it so it can't overwrite fresher data.
+        if (requestId !== loadRequestIdRef.current) return;
+        setSlotList(r.data);
+        setLoading(false);
+      });
   }, [filterLevel, filterStream, filterSem]);
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -66,24 +82,102 @@ export default function Timetable() {
     allTimeslots.map(ts => [ts.start_time, ts])
   ).values()].sort((a,b) => a.start_time.localeCompare(b.start_time));
 
-  // Build grid: grid[day][start_time] = slot
-  const grid = {};
-  DAYS.forEach(d => { grid[d] = {}; });
-  slotList.forEach(slot => {
-    const day   = slot.timeslot.day;
-    const time  = slot.timeslot.start_time;
-    grid[day][time] = slot;
-  });
+  // ---- Aggregated grid: grid[day][start_time] = { course, lecturer,
+  // venue, timeslot, ids: [...all ScheduleSlot ids sharing this class],
+  // groups: [...all group display names attending] }
+  // Every ScheduleSlot row for the same day+time+course+lecturer+venue
+  // gets folded into ONE cell, instead of one silently overwriting another. ----
+  const grid = useMemo(() => {
+    const g = {};
+    DAYS.forEach(d => { g[d] = {}; });
+
+    slotList.forEach(slot => {
+      const day = slot.timeslot.day;
+      const time = slot.timeslot.start_time;
+      const existing = g[day][time];
+
+      if (!existing) {
+        g[day][time] = {
+          course: slot.course,
+          lecturer: slot.lecturer,
+          venue: slot.venue,
+          timeslot: slot.timeslot,
+          is_published: slot.is_published,
+          ids: [slot.id],
+          groups: [slot.group.display || String(slot.group)],
+        };
+      } else {
+        // Same course+lecturer+venue+time already recorded (a combined
+        // lecture) — fold this group into the existing cell rather than
+        // overwriting it.
+        existing.ids.push(slot.id);
+        existing.groups.push(slot.group.display || String(slot.group));
+        if (!slot.is_published) existing.is_published = false;
+      }
+    });
+
+    return g;
+  }, [slotList]);
+
+  // ---- Merge layout: for each day, figure out which cells are the START
+  // of a multi-hour run (get a rowSpan + all slot ids across the run) and
+  // which cells are CONTINUATIONS (render nothing — covered by the
+  // rowSpan above). Relies on uniqueTimes already being sorted hourly
+  // with no gaps, so array-adjacency == time-adjacency. ----
+  const dayLayouts = useMemo(() => {
+    const layouts = {};
+    DAYS.forEach((day) => {
+      const layout = {};
+      let i = 0;
+      while (i < uniqueTimes.length) {
+        const ts = uniqueTimes[i];
+        const cell = grid[day][ts.start_time];
+
+        if (!cell) {
+          layout[ts.start_time] = { skip: false, rowSpan: 1, cell: null, allIds: [] };
+          i += 1;
+          continue;
+        }
+
+        let span = 1;
+        let j = i + 1;
+        while (j < uniqueTimes.length) {
+          const nextCell = grid[day][uniqueTimes[j].start_time];
+          if (nextCell && sameSession(cell, nextCell)) {
+            span += 1;
+            j += 1;
+          } else {
+            break;
+          }
+        }
+
+        const allIds = [];
+        for (let k = i; k < i + span; k++) {
+          const c = grid[day][uniqueTimes[k].start_time];
+          if (c) allIds.push(...c.ids);
+        }
+
+        layout[ts.start_time] = { skip: false, rowSpan: span, cell, allIds };
+        for (let k = i + 1; k < i + span; k++) {
+          layout[uniqueTimes[k].start_time] = { skip: true };
+        }
+
+        i = j;
+      }
+      layouts[day] = layout;
+    });
+    return layouts;
+  }, [grid, uniqueTimes]);
 
   const draftCount = useMemo(() => slotList.filter(s => !s.is_published).length, [slotList]);
   const publishedCount = slotList.length - draftCount;
 
   const openAdd = (tsId, day) => {
     if (!isAdmin) return;
+    // eslint-disable-next-line no-unused-vars
     const ts = allTimeslots.find(t => t.id === tsId);
     const matchedGroups = allGroups.filter(g => g.level === filterLevel && g.stream === filterStream);
     setClicked({ timeslot_id: tsId, day });
-    setEditingSlot(null);
     setConflicts([]);
     setForm({
       timeslot: tsId,
@@ -97,62 +191,36 @@ export default function Timetable() {
     setShowForm(true);
   };
 
-  const handleConfirmDelete = async () => {
-    if (!isAdmin || !deletingSlot) return;
-    try {
-      await slots.remove(deletingSlot.id);
-      await loadSlots();
-      toast.success('Timetable entry deleted successfully');
-      setDeletingSlot(null);
-    } catch (error) {
-      toast.error(
-        error?.response?.data?.detail ||
-        error?.response?.data?.message ||
-        'Unable to delete timetable entry'
-      );
-    }
-  };
+  const deleteSlot = async (ids, groupCount, e) => {
+    e.stopPropagation();
+    if (!isAdmin || !ids || ids.length === 0) return;
 
-  const openEdit = (slot) => {
-    if (!isAdmin) return;
-    setEditingSlot(slot);
-    setConflicts([]);
-    setForm({
-      course: slot.course?.id || '',
-      lecturer: slot.lecturer?.id || '',
-      venue: slot.venue?.id || '',
-      notes: slot.notes || '',
-    });
-    setShowForm(true);
+    if (groupCount > 1) {
+      const confirmed = window.confirm(
+        `This class is shared across ${groupCount} student group(s). Deleting it will remove it for all of them. Continue?`
+      );
+      if (!confirmed) return;
+    }
+
+    // Optimistic update — remove it from local state immediately, so the
+    // cell disappears the instant you click, with no wait on the network
+    // round-trip and no window for a race condition to show stale data.
+    const idSet = new Set(ids);
+    setSlotList((current) => current.filter((s) => !idSet.has(s.id)));
+
+    try {
+      await Promise.all(ids.map(id => slots.remove(id)));
+      toast.success(`Removed (${ids.length} record${ids.length > 1 ? 's' : ''})`);
+    } catch {
+      toast.error('Delete failed — restoring');
+    } finally {
+      // Resync with the server either way — confirms success, or restores
+      // the correct state if the delete actually failed server-side.
+      loadSlots();
+    }
   };
 
   const saveSlot = async () => {
-    if (editingSlot) {
-      setSaving(true);
-      setConflicts([]);
-      try {
-        await slots.update(editingSlot.id, {
-          course: form.course,
-          lecturer: form.lecturer,
-          venue: form.venue,
-          notes: form.notes
-        });
-        toast.success('Slot updated successfully');
-        setShowForm(false);
-        loadSlots();
-      } catch (error) {
-        const data = error.response?.data;
-        if (data?.conflicts?.length) {
-          setConflicts(data.conflicts);
-        } else {
-          toast.error(data?.detail || 'Unable to update slot');
-        }
-      } finally {
-        setSaving(false);
-      }
-      return;
-    }
-
     if (!form.selectedGroups || form.selectedGroups.length === 0) {
       toast.error('Please select at least one student group');
       return;
@@ -239,8 +307,8 @@ export default function Timetable() {
       a.download = `timetable_${filterLevel}_${filterStream}.pdf`;
       a.click();
       window.URL.revokeObjectURL(url);
-      toast.success('PDF exported successfully');
-    } catch { toast.error('Unable to export PDF'); }
+      toast.success('PDF downloaded!');
+    } catch { toast.error('Export failed'); }
   };
 
   const streamLabel = filterStream === 'physical' ? 'Physical Science' : 'Bio Science';
@@ -268,32 +336,6 @@ export default function Timetable() {
           <div className="form-group" style={{margin:0}}>
             <label>Semester</label>
             <input value={filterSem} onChange={e=>setFSem(e.target.value)} style={{width:110}}/>
-          </div>
-          <div className="form-group" style={{margin:0}}>
-            <label>Search (Course/Lecturer)</label>
-            <input value={searchQuery} onChange={e=>setSearchQuery(e.target.value)} placeholder="Filter slots..." style={{width:160}}/>
-          </div>
-
-          <div className="form-group" style={{margin:0}}>
-            <label>View Mode</label>
-            <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: '6px', overflow: 'hidden' }}>
-              <button 
-                type="button"
-                className={`btn btn-sm ${viewMode === 'weekly' ? 'btn-primary' : 'btn-ghost'}`}
-                style={{ borderRadius: 0, border: 'none', borderRight: '1px solid var(--border)', opacity: viewMode === 'weekly' ? 1 : 0.7 }}
-                onClick={() => setViewMode('weekly')}
-              >
-                Weekly
-              </button>
-              <button 
-                type="button"
-                className={`btn btn-sm ${viewMode === 'daily' ? 'btn-primary' : 'btn-ghost'}`}
-                style={{ borderRadius: 0, border: 'none', opacity: viewMode === 'daily' ? 1 : 0.7 }}
-                onClick={() => setViewMode('daily')}
-              >
-                Daily
-              </button>
-            </div>
           </div>
 
           {isAdmin && (
@@ -323,25 +365,6 @@ export default function Timetable() {
             <Download size={14}/> Export PDF
           </button>
         </div>
-
-        {viewMode === 'daily' && (
-          <div style={{ padding: '0 20px 20px', display: 'flex', gap: '8px', overflowX: 'auto' }}>
-            {DAYS.map(d => (
-              <button 
-                key={d} 
-                className={`btn btn-sm ${selectedDay === d ? 'btn-primary' : 'btn-ghost'}`}
-                onClick={() => setSelectedDay(d)}
-                style={{
-                  border: selectedDay === d ? 'none' : '1px solid var(--border)',
-                  background: selectedDay === d ? 'var(--primary)' : 'transparent',
-                  color: selectedDay === d ? '#fff' : 'var(--text)'
-                }}
-              >
-                {d}
-              </button>
-            ))}
-          </div>
-        )}
       </div>
 
       {/* Grid */}
@@ -366,11 +389,11 @@ export default function Timetable() {
         </div>
         {loading ? <div className="loading-center"><div className="spinner"/></div> : (
           <div className="tt-grid-wrap">
-            <table className={`tt-grid ${viewMode}-view`}>
+            <table className="tt-grid">
               <thead>
                 <tr>
                   <th>Time</th>
-                  {(viewMode === 'weekly' ? DAYS : [selectedDay]).map(d => <th key={d}>{d}</th>)}
+                  {DAYS.map(d => <th key={d}>{d}</th>)}
                 </tr>
               </thead>
               <tbody>
@@ -382,39 +405,35 @@ export default function Timetable() {
                 {uniqueTimes.map(ts => (
                   <tr key={ts.id}>
                     <td className="time-col">{ts.start_time.slice(0,5)}<br/><span style={{ fontSize: 9, opacity: .7 }}>{ts.end_time.slice(0,5)}</span></td>
-                    {(viewMode === 'weekly' ? DAYS : [selectedDay]).map(day => {
+                    {DAYS.map(day => {
+                      const layoutInfo = dayLayouts[day]?.[ts.start_time];
+                      if (!layoutInfo || layoutInfo.skip) return null; // covered by a rowSpan above
+
+                      const { rowSpan, cell, allIds } = layoutInfo;
                       const tsForDay = allTimeslots.find(t => t.day === day && t.start_time === ts.start_time);
-                      const slot = tsForDay ? grid[day][tsForDay.start_time] : null;
-                      const isDraft = slot && isAdmin && !slot.is_published;
-                      
-                      let isMatch = true;
-                      if (slot && searchQuery) {
-                        const lowerQ = searchQuery.toLowerCase();
-                        isMatch = (slot.course?.code?.toLowerCase() || '').includes(lowerQ) ||
-                                  (slot.course?.name?.toLowerCase() || '').includes(lowerQ) ||
-                                  (slot.lecturer?.name?.toLowerCase() || '').includes(lowerQ) ||
-                                  (slot.venue?.code?.toLowerCase() || '').includes(lowerQ);
-                      }
+                      const isDraft = cell && isAdmin && !cell.is_published;
+                      const groupCount = cell ? cell.groups.length : 0;
 
                       return (
                         <td
                           key={day}
-                          onClick={() => isAdmin && !slot && tsForDay && openAdd(tsForDay.id, day)}
+                          rowSpan={rowSpan}
+                          onClick={() => isAdmin && !cell && tsForDay && openAdd(tsForDay.id, day)}
                         >
-                          {slot ? (
+                          {cell ? (
                             <div
                               className="slot-cell"
+                              title={groupCount > 1 ? `Groups: ${cell.groups.join(', ')}` : undefined}
                               style={{
                                 cursor: isAdmin ? 'pointer' : 'default',
-                                opacity: isMatch ? 1 : 0.2,
+                                height: '100%',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                justifyContent: 'center',
                                 ...(isDraft ? {
                                   background: '#f39c12',
                                   border: '1.5px dashed #b45309',
                                 } : {}),
-                              }}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (isAdmin) openEdit(slot);
                               }}
                             >
                               {isDraft && (
@@ -422,15 +441,24 @@ export default function Timetable() {
                                   DRAFT
                                 </div>
                               )}
-                              <div style={{fontWeight:600}}>{slot.course.code}</div>
-                              <div style={{opacity:.85}}>{slot.venue.code}</div>
-                              <div style={{opacity:.7,fontSize:10}}>{slot.lecturer.name.split(' ').pop()}</div>
+                              <div style={{ display: 'flex', gap: 4, justifyContent: 'center', marginBottom: 2, flexWrap: 'wrap' }}>
+                                {rowSpan > 1 && (
+                                  <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: 0.4, opacity: 0.75 }}>
+                                    {rowSpan}H
+                                  </span>
+                                )}
+                                {groupCount > 1 && (
+                                  <span style={{ fontSize: 8, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 2, opacity: 0.85 }}>
+                                    <Users size={9} /> {groupCount}
+                                  </span>
+                                )}
+                              </div>
+                              <div style={{fontWeight:600}}>{cell.course.code}</div>
+                              <div style={{opacity:.85}}>{cell.venue.code}</div>
+                              <div style={{opacity:.7,fontSize:10}}>{cell.lecturer.name.split(' ').pop()}</div>
                               {isAdmin && (
                                 <button className="slot-del btn" style={{background:'transparent',padding:0,color:'#fff',fontSize:12}}
-                                  onClick={e => {
-                                    e.stopPropagation();
-                                    setDeletingSlot(slot);
-                                  }}>
+                                  onClick={e => deleteSlot(allIds, groupCount, e)}>
                                   <X size={12}/>
                                 </button>
                               )}
@@ -465,15 +493,15 @@ export default function Timetable() {
 
           <div className="login-note-box" style={{ marginBottom: 16 }}>
             <div className="login-note" style={{ textAlign: 'left', margin: 0 }}>
-              {editingSlot 
-                ? "You are editing an existing slot."
-                : <>New slots are saved as <strong>draft</strong> — students and lecturers won't see this until you click <strong>Publish</strong>.</>}
+              New slots are saved as <strong>draft</strong> — students and lecturers won't see this
+              until you click <strong>Publish</strong>. Ticking multiple groups creates one combined
+              class (shown with a group-count badge). Adding the same course/lecturer/venue to
+              consecutive hours merges them into one taller cell.
             </div>
           </div>
 
-          {!editingSlot && (
-            <div className="form-group"><label>Student Groups (Select Multiple)</label>
-              <div style={{border:'1px solid #e2e8f0',borderRadius:'6px',padding:'10px',maxHeight:'200px',overflowY:'auto'}}>
+          <div className="form-group"><label>Student Groups (Select Multiple)</label>
+            <div style={{border:'1px solid #e2e8f0',borderRadius:'6px',padding:'10px',maxHeight:'200px',overflowY:'auto'}}>
               {allGroups
                 .filter(g => g.level === filterLevel && g.stream === filterStream)
                 .map(g => (
@@ -498,7 +526,6 @@ export default function Timetable() {
               )}
             </div>
           </div>
-          )}
 
           <div className="form-group">
             <label>Course</label>
@@ -524,32 +551,12 @@ export default function Timetable() {
             <input value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})} placeholder="e.g. W01–W06 only"/>
           </div>
           <div className="modal-footer">
-            {editingSlot && (
-              <button 
-                className="btn btn-danger" 
-                style={{marginRight: 'auto'}}
-                onClick={() => {
-                  setShowForm(false);
-                  setDeletingSlot(editingSlot);
-                }}
-              >
-                Delete Slot
-              </button>
-            )}
             <button className="btn btn-ghost" onClick={()=>setShowForm(false)}>Cancel</button>
             <button className="btn btn-primary" onClick={saveSlot} disabled={saving}>
               {saving ? 'Checking conflicts...' : 'Save Slot'}
             </button>
           </div>
         </Modal>
-      )}
-
-      {deletingSlot && (
-        <ConfirmDelete
-          name={`${deletingSlot.course?.code || 'Course'}, ${deletingSlot.group?.display || deletingSlot.group?.name || allGroups.find(g => g.id === (deletingSlot.group?.id || deletingSlot.group))?.display || 'Group'}, ${deletingSlot.timeslot?.day || ''} ${deletingSlot.timeslot?.start_time?.slice(0,5) || ''}`}
-          onConfirm={handleConfirmDelete}
-          onClose={() => setDeletingSlot(null)}
-        />
       )}
     </div>
   );
