@@ -46,8 +46,10 @@ export default function Login() {
     }
   };
 
+  const isFlipped = theme === 'dark';
+
   return (
-    <div className="login-split">
+    <div className={`login-split ${isFlipped ? 'login-split--flipped' : ''}`}>
 
       {/* ── Left image panel ── */}
       <div className="login-panel-image">

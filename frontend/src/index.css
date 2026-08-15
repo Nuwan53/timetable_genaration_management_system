@@ -102,17 +102,20 @@ body {
   font-family: 'Inter', system-ui, sans-serif;
   background: var(--bg);
   color: var(--text);
-  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
 a { color: inherit; }
 button, input, select { font: inherit; }
 
+/* Universal Global Theme Transition */
+*, *::before, *::after {
+  transition: background-color 0.4s ease-in-out, color 0.4s ease-in-out, border-color 0.4s ease-in-out, box-shadow 0.4s ease-in-out, fill 0.4s ease-in-out;
+}
+
 .app-shell {
   display: flex;
   min-height: 100vh;
   background: var(--bg);
-  transition: background-color 0.3s ease;
 }
 
 .sidebar {
@@ -396,6 +399,10 @@ tr:hover td { background: var(--surface-soft); }
   background: var(--bg);
 }
 
+.login-split--flipped {
+  flex-direction: row-reverse;
+}
+
 /* ── Left image panel ──────────────────────────────────────── */
 .login-panel-image {
   position: relative;
@@ -501,13 +508,13 @@ tr:hover td { background: var(--surface-soft); }
   line-height: 1.7;
 }
 
-/* 2×2 feature grid */
+/* Vertical feature stack */
 .login-panel-features {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
   gap: 10px;
   margin-top: 32px;
-  width: 100%;
 }
 
 .login-panel-feature {
@@ -551,6 +558,10 @@ tr:hover td { background: var(--surface-soft); }
   line-height: 1.55;
   width: 100%;
   box-sizing: border-box;
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* ── Right form panel ──────────────────────────────────────── */
@@ -568,6 +579,12 @@ tr:hover td { background: var(--surface-soft); }
   overflow-y: auto;
   animation: loginFadeInUp 0.55s ease-out 0.12s both;
   z-index: 5;
+}
+
+.login-split--flipped .login-panel-form {
+  border-left: none;
+  border-right: 1px solid var(--border);
+  box-shadow: 10px 0 30px var(--shadow);
 }
 
 /* Theme toggle button — top right of form panel */
@@ -884,6 +901,8 @@ tr:hover td { background: var(--surface-soft); }
     align-items: center;
     justify-content: center;
     border-left: none; /* remove desktop border */
+    border-right: none;
+    box-shadow: none;
   }
   
   .login-form-inner {
