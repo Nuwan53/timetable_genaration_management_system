@@ -2366,3 +2366,418 @@ body[data-theme='dark'] .login-split {
 .file-upload-name strong {
   color: #0f172a;
 }
+/* ==========================================================================
+   Login — full-bleed campus photo, two floating panels, self-contained
+   .lg- prefixed tokens (kept separate from your global --accent, which
+   resolves to blue and fights the gold accent this design needs).
+   ========================================================================== */
+
+.lg-login {
+  --navy: #0f1b33;
+  --navy-deep: #0a1424;
+  --gold: #c9a227;
+  --ink: #e7e9ee;
+  --muted-dark: #9aa5b8;
+
+  --text: #16233e;
+  --muted-light: #5b6472;
+  --line: rgba(15, 27, 51, 0.14);
+
+  --serif: 'Fraunces', 'Newsreader', Georgia, serif;
+  --sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --mono: 'IBM Plex Mono', 'JetBrains Mono', ui-monospace, monospace;
+
+  position: relative;
+  min-height: 100vh;
+  font-family: var(--sans);
+  background-size: cover;
+  background-position: center;
+  overflow: hidden;
+}
+
+/* Dark scrim so the showcase panel and toggle buttons stay legible
+   over whatever part of the photo sits behind them. */
+.lg-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(10, 20, 36, 0.5);
+  /* background:
+    linear-gradient(100deg, rgba(8, 14, 26, 0.88) 0%, rgba(8, 14, 26, 0.55) 30%, rgba(8, 14, 26, 0.12) 55%, rgba(8, 14, 26, 0.28) 100%),
+    linear-gradient(180deg, rgba(8, 14, 26, 0.25) 0%, rgba(8, 14, 26, 0) 30%, rgba(8, 14, 26, 0.35) 100%); */
+}
+
+/* ── Theme toggle: two explicit circular buttons ────────────────────── */
+
+.lg-theme-toggle {
+  position: absolute;
+  top: 1.75rem;
+  right: 1.75rem;
+  z-index: 3;
+  display: flex;
+  gap: 0.6rem;
+}
+
+.lg-toggle-btn {
+  width: 2.4rem;
+  height: 2.4rem;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border: 1.5px solid transparent;
+  opacity: 0.55;
+  transition: opacity 150ms ease, transform 100ms ease, border-color 150ms ease;
+}
+
+.lg-toggle-btn:hover { opacity: 0.85; }
+.lg-toggle-btn:active { transform: scale(0.94); }
+.lg-toggle-btn.is-active { opacity: 1; border-color: var(--gold); }
+
+.lg-toggle-btn--dark { background: var(--navy-deep); color: var(--ink); }
+.lg-toggle-btn--light { background: #f7f5f0; color: var(--navy-deep); }
+
+.lg-toggle-btn:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+/* ── Stage: the two floating panels, pulled close together ─────────── */
+
+.lg-stage {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  min-height: 100vh;
+  gap: 2.5rem;
+  padding: 0 clamp(1.5rem, 5vw, 5rem);
+  justify-content: center;
+}
+
+@media (max-width: 860px) {
+  .lg-stage {
+    flex-direction: column;
+    justify-content: center;
+    gap: 1.5rem;
+    padding: 2rem 1.25rem;
+  }
+}
+
+/* ── Left: showcase panel — solid, full height, pinned left ─────────── */
+
+.lg-showcase {
+  align-self: center;
+  width: clamp(280px, 26vw, 340px);
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  border-radius: 20px;
+  background: rgba(247, 245, 240, 0.82);
+  backdrop-filter: blur(18px) saturate(150%);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  box-shadow: 0 24px 60px rgba(8, 14, 26, 0.35);
+  color: var(--text);
+  padding: 2.5rem 1.75rem;
+  transition: background 200ms ease, color 200ms ease;
+}
+
+.lg-login[data-theme='dark'] .lg-showcase {
+  background: rgba(10, 20, 36, 0.5);
+  border-color: rgba(231, 233, 238, 0.16);
+  color: var(--ink);
+}
+
+@media (max-width: 860px) {
+  .lg-showcase {
+    align-self: auto;
+    width: 100%;
+    max-width: 420px;
+    border-radius: 20px;
+    padding: 2rem 1.5rem;
+  }
+}
+
+.lg-showcase-inner { max-width: 460px; }
+
+.lg-grid {
+  margin-bottom: 2.25rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(15, 27, 51, 0.03);
+}
+
+.lg-login[data-theme='dark'] .lg-grid {
+  border-color: rgba(231, 233, 238, 0.16);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.lg-grid-row {
+  display: grid;
+  grid-template-columns: 3.1rem repeat(5, 1fr);
+  align-items: center;
+}
+
+.lg-grid-row + .lg-grid-row { border-top: 1px solid var(--line); }
+.lg-grid-row--header { background: rgba(15, 27, 51, 0.04); }
+
+.lg-login[data-theme='dark'] .lg-grid-row + .lg-grid-row { border-top-color: rgba(231, 233, 238, 0.14); }
+.lg-login[data-theme='dark'] .lg-grid-row--header { background: rgba(255, 255, 255, 0.04); }
+
+.lg-grid-corner,
+.lg-grid-time {
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.02em;
+  color: var(--muted-light);
+  padding: 0.45rem 0.5rem;
+}
+
+.lg-grid-day {
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  color: var(--muted-light);
+  text-align: center;
+  padding: 0.45rem 0;
+}
+
+.lg-login[data-theme='dark'] .lg-grid-corner,
+.lg-login[data-theme='dark'] .lg-grid-time,
+.lg-login[data-theme='dark'] .lg-grid-day {
+  color: var(--muted-dark);
+}
+
+.lg-grid-cell {
+  height: 1rem;
+  margin: 0.28rem;
+  border-radius: 3px;
+  background: rgba(15, 27, 51, 0.08);
+  opacity: 0;
+  transform: scaleX(0.4);
+  transform-origin: left;
+  animation: lgCellIn 420ms ease-out forwards;
+}
+
+.lg-login[data-theme='dark'] .lg-grid-cell { background: rgba(255, 255, 255, 0.06); }
+
+.lg-grid-cell.is-filled { background: rgba(15, 27, 51, 0.22); }
+.lg-login[data-theme='dark'] .lg-grid-cell.is-filled { background: rgba(231, 233, 238, 0.22); }
+
+.lg-grid-cell.is-now {
+  background: var(--gold);
+  animation: lgCellIn 420ms ease-out forwards, lgPulse 2.4s ease-in-out 600ms infinite;
+}
+
+@keyframes lgCellIn { to { opacity: 1; transform: scaleX(1); } }
+@keyframes lgPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(201, 162, 39, 0.45); }
+  50% { box-shadow: 0 0 0 6px rgba(201, 162, 39, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lg-grid-cell { animation: none; opacity: 1; transform: none; }
+}
+
+.lg-headline {
+  font-family: var(--serif);
+  font-weight: 500;
+  font-size: clamp(1.6rem, 2.4vw, 2.1rem);
+  line-height: 1.15;
+  margin: 0 0 0.9rem;
+}
+
+.lg-headline em { font-style: italic; color: var(--gold); }
+
+.lg-sub {
+  font-size: 0.85rem;
+  line-height: 1.55;
+  color: var(--muted-light);
+  margin: 0 0 1.5rem;
+  max-width: 34ch;
+}
+
+.lg-login[data-theme='dark'] .lg-sub { color: var(--muted-dark); }
+
+.lg-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.25rem;
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  color: var(--text);
+}
+
+.lg-login[data-theme='dark'] .lg-meta { color: var(--ink); }
+
+.lg-meta span { display: inline-flex; align-items: center; gap: 0.4rem; }
+.lg-meta svg { color: var(--gold); }
+
+/* ── Right: floating glass card — close to the showcase, not full height ── */
+
+.lg-form-card {
+  flex: 0 0 auto;
+  width: clamp(300px, 27vw, 360px);
+  border-radius: 20px;
+  padding: 2rem 1.9rem;
+  background: rgba(247, 245, 240, 0.82);
+  backdrop-filter: blur(22px) saturate(160%);
+  -webkit-backdrop-filter: blur(22px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  box-shadow: 0 24px 60px rgba(8, 14, 26, 0.35);
+  color: var(--text);
+  transition: background 200ms ease, color 200ms ease;
+}
+
+.lg-login[data-theme='dark'] .lg-form-card {
+  background: rgba(15, 24, 43, 0.72);
+  border-color: rgba(231, 233, 238, 0.14);
+  color: var(--ink);
+}
+
+@media (max-width: 860px) {
+  .lg-form-card { width: 100%; max-width: 420px; }
+}
+
+.lg-form-inner { width: 100%; }
+
+.lg-brand { display: flex; align-items: center; gap: 0.65rem; margin-bottom: 1.75rem; }
+
+.lg-brand-mark {
+  width: 2.1rem;
+  height: 2.1rem;
+  border-radius: 7px;
+  background: var(--navy);
+  color: var(--gold);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.lg-login[data-theme='dark'] .lg-brand-mark { background: var(--gold); color: var(--navy-deep); }
+
+.lg-brand-title { font-weight: 600; font-size: 0.92rem; }
+.lg-brand-subtitle { font-size: 0.68rem; letter-spacing: 0.02em; text-transform: uppercase; color: var(--muted-light); }
+.lg-login[data-theme='dark'] .lg-brand-subtitle { color: var(--muted-dark); }
+
+.lg-welcome { margin-bottom: 1.4rem; }
+.lg-welcome-heading { font-family: var(--serif); font-size: 1.4rem; font-weight: 500; margin: 0 0 0.3rem; }
+.lg-welcome-sub { font-size: 0.82rem; color: var(--muted-light); margin: 0; }
+.lg-login[data-theme='dark'] .lg-welcome-sub { color: var(--muted-dark); }
+
+.lg-form { display: flex; flex-direction: column; gap: 0.35rem; }
+
+.lg-field-label {
+  font-family: var(--mono);
+  font-size: 0.64rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted-light);
+  margin-top: 0.85rem;
+}
+
+.lg-login[data-theme='dark'] .lg-field-label { color: var(--muted-dark); }
+
+.lg-field {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  height: 2.5rem;
+  border-bottom: 1.5px solid var(--line);
+  transition: border-color 150ms ease;
+}
+
+.lg-login[data-theme='dark'] .lg-field { border-bottom-color: rgba(231, 233, 238, 0.18); }
+.lg-field:focus-within { border-bottom-color: var(--gold); }
+
+.lg-field-icon { flex: 0 0 auto; color: var(--muted-light); }
+.lg-login[data-theme='dark'] .lg-field-icon { color: var(--muted-dark); }
+
+.lg-field-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  border: none;
+  background: transparent;
+  outline: none;
+  font-size: 0.9rem;
+  font-family: var(--sans);
+  color: inherit;
+  padding: 0;
+}
+
+.lg-field-input::placeholder { color: var(--muted-light); opacity: 0.7; }
+.lg-login[data-theme='dark'] .lg-field-input::placeholder { color: var(--muted-dark); opacity: 0.6; }
+
+.lg-pw-toggle {
+  flex: 0 0 auto;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.25rem;
+  display: flex;
+}
+
+.lg-pw-icon-wrap { position: relative; width: 15px; height: 15px; }
+.lg-pw-icon { position: absolute; inset: 0; opacity: 0; transition: opacity 150ms ease; color: var(--muted-light); }
+.lg-login[data-theme='dark'] .lg-pw-icon { color: var(--muted-dark); }
+.lg-pw-icon.active { opacity: 1; }
+
+.lg-submit {
+  margin-top: 1.6rem;
+  height: 2.55rem;
+  border: none;
+  border-radius: 6px;
+  background: var(--navy);
+  color: #f7f5f0;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  transition: background 150ms ease, transform 100ms ease;
+}
+
+.lg-login[data-theme='dark'] .lg-submit { background: var(--gold); color: var(--navy-deep); }
+.lg-submit:hover:not(:disabled) { filter: brightness(1.08); }
+.lg-submit:active:not(:disabled) { transform: scale(0.99); }
+.lg-submit:disabled { opacity: 0.7; cursor: default; }
+
+.lg-pw-toggle:focus-visible,
+.lg-field-input:focus-visible,
+.lg-submit:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+.lg-submit-spinner {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 2px solid rgba(247, 245, 240, 0.35);
+  border-top-color: currentColor;
+  animation: lgSpin 700ms linear infinite;
+}
+
+@keyframes lgSpin { to { transform: rotate(360deg); } }
+
+.lg-footer {
+  margin-top: 1.6rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--line);
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.64rem;
+  line-height: 1.4;
+  color: var(--muted-light);
+}
+
+.lg-login[data-theme='dark'] .lg-footer {
+  border-top-color: rgba(231, 233, 238, 0.14);
+  color: var(--muted-dark);
+}
