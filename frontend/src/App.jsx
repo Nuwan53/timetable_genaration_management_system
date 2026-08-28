@@ -1,12 +1,14 @@
 import { BrowserRouter, Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { Toaster } from 'react-hot-toast';
-import { LayoutDashboard, BookOpen, Users, MapPin, Clock, CalendarDays, LayoutGrid, LogOut, Search, Bell, ChevronRight, GraduationCap, CalendarSearch, UploadCloud, Wand2 , ShieldPlus, BookMarked, Sun, Moon, Menu} from 'lucide-react';
+import { LayoutDashboard, BookOpen, Users, MapPin, Clock, CalendarDays, LayoutGrid, LogOut, ChevronRight, GraduationCap, CalendarSearch, UploadCloud, Wand2, ShieldPlus, BookMarked, Menu, ScrollText } from 'lucide-react';
 import './index.css';
 
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { ThemeProvider, useTheme } from './context/ThemeContext';
+import { ThemeProvider } from './context/ThemeContext';
 import ProtectedRoute from './components/ProtectedRoute';
+import ThemeCustomizer from './components/ThemeCustomizer';
+import NotificationPanel from './components/NotificationPanel';
 
 import Login      from './pages/Login';
 import ChangePassword from './pages/ChangePassword';
@@ -26,6 +28,8 @@ import AutoScheduler from './pages/AutoScheduler';
 import Admins from './pages/Admins';
 import AdminProfile from './pages/AdminProfile';
 import Curriculum from './pages/Curriculum';
+import ActivityLog from './pages/ActivityLog';
+
 
 const nav = [
   { to:'/',           label:'Dashboard',      icon:<LayoutDashboard size={16}/>, roles:['ADMIN','LECTURER','STUDENT'] },
@@ -40,6 +44,8 @@ const nav = [
   { to:'/auto-scheduler', label:'Auto Scheduler', icon:<Wand2 size={16}/>, roles:['ADMIN'] },
   { to:'/curriculum', label:'Curriculum', icon:<BookMarked size={16}/>, roles:['ADMIN'] },
   { to:'/admins', label:'Admins', icon:<ShieldPlus size={16}/>, roles:['ADMIN'] },
+  { to:'/activity-log', label:'Activity Log', icon:<ScrollText size={16}/>, roles:['ADMIN'] },
+
 
 
 ];
@@ -48,19 +54,20 @@ const pageTitle = {
   '/': 'Dashboard', '/student': 'Dashboard', '/lecturer': 'Dashboard', '/timetable': 'Timetable', '/courses': 'Courses',
   '/lecturers': 'Lecturers', '/venues': 'Venues',
   '/students': 'Students', '/groups': 'Student Groups', '/timeslots': 'Time Slots',
-  '/analytics': 'Availability', '/bulk-upload': 'Bulk Registration', '/auto-scheduler': 'Auto Scheduler', '/admins': 'Admins', '/profile': 'My Profile', '/curriculum': 'Curriculum',
+  '/analytics': 'Availability', '/bulk-upload': 'Bulk Registration', '/auto-scheduler': 'Auto Scheduler', '/admins': 'Admins', '/profile': 'My Profile', '/curriculum': 'Curriculum', '/activity-log': 'Activity Log',
+
 
 
 };
 
 function AppShell() {
   const { user, logout } = useAuth();
-  const { theme, toggleTheme } = useTheme();
   const { pathname } = useLocation();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   useEffect(() => {
-    setIsSidebarOpen(false);
+    const closeSidebar = window.setTimeout(() => setIsSidebarOpen(false), 0);
+    return () => window.clearTimeout(closeSidebar);
   }, [pathname]);
 
   useEffect(() => {
@@ -143,25 +150,22 @@ function AppShell() {
               <Menu size={20} aria-hidden="true" />
             </button>
             <div className="topbar-title">Timetable Manager</div>
+            {/* 
             <div className="topbar-search">
               <Search size={16} />
               <input type="text" placeholder="Search sessions..." aria-label="Search sessions" />
             </div>
+            */}
           </div>
           <div className="topbar-right">
+            {/*
             <button className="topbar-link" type="button">Current Semester</button>
             <button className="topbar-link" type="button">Exam Period</button>
             <button className="topbar-link" type="button">Archives</button>
             <span className="topbar-divider" />
-            <button 
-              className="icon-btn theme-toggle-btn" 
-              type="button" 
-              onClick={toggleTheme} 
-              aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-            >
-              {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
-            </button>
-            <button className="icon-btn" type="button" aria-label="Notifications"><Bell size={16} /></button>
+            */}
+            <ThemeCustomizer />
+            <NotificationPanel />
             <div className="topbar-avatar" style={{ overflow: 'hidden' }}>
               {user.avatar_url ? <img src={user.avatar_url} alt="Profile avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : avatarFallback}
             </div>
@@ -193,6 +197,7 @@ function AppShell() {
             <Route path="/admins" element={<ProtectedRoute allow={['ADMIN']}><Admins/></ProtectedRoute>}/>
             <Route path="/profile" element={<AdminProfile/>}/>
             <Route path="/curriculum" element={<ProtectedRoute allow={['ADMIN']}><Curriculum/></ProtectedRoute>}/>
+            <Route path="/activity-log" element={<ProtectedRoute allow={['ADMIN']}><ActivityLog/></ProtectedRoute>}/>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </div>

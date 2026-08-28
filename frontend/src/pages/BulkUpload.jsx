@@ -99,7 +99,20 @@ export default function BulkUpload() {
 
         <div className="form-group">
           <label>Upload filled file (.xlsx or .csv)</label>
-          <input type="file" accept=".xlsx,.csv" onChange={handleFileChange} />
+          <div className="file-upload-wrap">
+            <label className="file-upload-btn">
+              <Upload size={14} /> Choose File
+              <input
+                type="file"
+                accept=".xlsx,.csv"
+                onChange={handleFileChange}
+                style={{ display: 'none' }}
+              />
+            </label>
+            <span className="file-upload-name">
+              {file ? <><strong>{file.name}</strong></> : 'No file chosen'}
+            </span>
+          </div>
         </div>
 
         <button className="btn btn-primary" onClick={handleUpload} disabled={uploading || !file}>
