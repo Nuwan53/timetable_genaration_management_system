@@ -1,19 +1,41 @@
-version: '3.8'
-
 services:
+  db:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      - MYSQL_ROOT_PASSWORD=password
+      - MYSQL_DATABASE=timetable
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-ppassword"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   backend:
     build:
       context: .
       dockerfile: Dockerfile
+    
+    env_file:
+      - .env
+    
+    command: sh -c "sleep 5 && python manage.py runserver 0.0.0.0:8000"
     ports:
       - "8000:8000"
     volumes:
       - .:/app
-    # environment:
-    #   - DB_HOST=db
-    #   - DB_USER=root
-    #   - DB_PASSWORD=password
-    #   - DB_NAME=timetable
+    environment:
+      - DB_HOST=db
+      - DB_USER=root
+      - DB_PASSWORD=password
+      - DB_NAME=timetable
+    depends_on:
+      db:
+        condition: service_healthy
 
   frontend:
     build:
@@ -26,3 +48,6 @@ services:
       - /app/node_modules
     stdin_open: true
     tty: true
+
+volumes:
+  mysql_data:

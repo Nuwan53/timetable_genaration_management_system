@@ -4,7 +4,7 @@ import axios from 'axios';
 
 const AuthContext = createContext(null);
 
-const api = axios.create({ baseURL: 'http://localhost:8000/api' });
+const api = axios.create({ baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api' });
 
 api.interceptors.request.use((config) => {
   const isAuthRoute = config.url?.includes('/auth/login');

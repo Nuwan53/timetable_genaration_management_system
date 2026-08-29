@@ -7,7 +7,7 @@ import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
 import axios from 'axios';
 
-const api = axios.create({ baseURL: 'http://localhost:8000/api' });
+const api = axios.create({ baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api' });
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('tms_token');
   if (token) config.headers.Authorization = `Bearer ${token}`;

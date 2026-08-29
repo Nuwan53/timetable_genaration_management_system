@@ -47,12 +47,15 @@ WSGI_APPLICATION = 'core.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'timetable_db',
-        'USER': 'root',
-        'PASSWORD': '',
-        'HOST': 'localhost',
-'PORT': config('DB_PORT', default='3306'),
-        'OPTIONS': {'charset': 'utf8mb4'},
+        'NAME': config('DB_NAME', default='timetable_db'),
+        'USER': config('DB_USER', default='root'),
+        'PASSWORD': config('DB_PASSWORD', default=''),
+        'HOST': config('DB_HOST', default='localhost'),
+        'PORT': config('DB_PORT', default='3306'),
+        'OPTIONS': {
+            'charset': 'utf8mb4',
+            'ssl_mode': config('DB_SSL_MODE', default='DISABLED'),
+        },
     }
 }
 
@@ -72,6 +75,7 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'

@@ -1,0 +1,12 @@
+.venv
+.git
+.gitignore
+__pycache__
+*.pyc
+media
+node_modules
+frontend
+db.sqlite3
+.env
+*.md
+.dockerignore
