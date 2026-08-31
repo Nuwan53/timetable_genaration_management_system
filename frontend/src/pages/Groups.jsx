@@ -14,6 +14,8 @@ export default function Groups() {
       title="Student Groups"
       api={groups}
       fields={fields}
+      defaultForm={{ level: 'I', stream: 'physical', year: '2024' }}
+
       filters={[
         {key: 'level', label: 'Level', allLabel: 'All levels'},
         {key: 'stream', label: 'Stream', allLabel: 'All streams'},

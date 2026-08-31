@@ -6,8 +6,7 @@ import toast from 'react-hot-toast';
 import Skeleton from '../components/Skeleton';
 import EmptyState from '../components/EmptyState';
 
-export default function CrudPage({ title, api, fields, rowRenderer, formRenderer, filters = [] }) {
-  const titleMap = { Courses: 'Course', Lecturers: 'Lecturer', Venues: 'Venue', 'Student Groups': 'Student group', 'Time Slots': 'Time slot' };
+export default function CrudPage({ title, api, fields, rowRenderer, formRenderer, filters = [], defaultForm = {} }) {  const titleMap = { Courses: 'Course', Lecturers: 'Lecturer', Venues: 'Venue', 'Student Groups': 'Student group', 'Time Slots': 'Time slot' };
   const singularTitle = titleMap[title] || 'Item';
 
   const [items, setItems] = useState([]);
@@ -123,8 +122,7 @@ export default function CrudPage({ title, api, fields, rowRenderer, formRenderer
     return Array.from({ length: endPage - startPage + 1 }, (_, i) => startPage + i);
   };
 
-  const openCreate = () => { setEditing(null); setForm({}); setShowForm(true); };
-  const openEdit   = (item) => { setEditing(item); setForm(item); setShowForm(true); };
+const openCreate = () => { setEditing(null); setForm({ ...defaultForm }); setShowForm(true); };  const openEdit   = (item) => { setEditing(item); setForm(item); setShowForm(true); };
 
   const save = async () => {
     try {
