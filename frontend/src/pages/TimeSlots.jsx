@@ -13,6 +13,7 @@ export default function TimeSlots() {
       title="Time Slots"
       api={timeslots}
       fields={fields}
+      filters={[{key: 'day', label: 'Day', allLabel: 'All days'}]}
       rowRenderer={item => (
         <>
           <td><span className="badge badge-amber">{item.day}</span></td>

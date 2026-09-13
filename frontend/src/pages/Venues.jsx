@@ -14,6 +14,7 @@ export default function Venues() {
       title="Venues"
       api={venues}
       fields={fields}
+      filters={[{key: 'venue_type', label: 'Type', allLabel: 'All venue types'}]}
       formRenderer={(form, setForm) => (
         <>
           <div className="form-row">

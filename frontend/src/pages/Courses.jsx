@@ -13,6 +13,7 @@ export default function Courses() {
       title="Courses"
       api={courses}
       fields={fields}
+      filters={[{key: 'credits', label: 'Credits', allLabel: 'All credits'}]}
       formRenderer={(form, setForm) => (
         <>
           <div className="form-row">
@@ -22,7 +23,7 @@ export default function Courses() {
             </div>
             <div className="form-group">
               <label>Credits</label>
-              <input type="number" min="1" max="6" value={form.credits||3} onChange={e=>setForm({...form,credits:e.target.value})}/>
+              <input type="number" min="1" max="6" step="0.25" value={form.credits||3} onChange={e=>setForm({...form,credits:e.target.value})}/>
             </div>
           </div>
           <div className="form-group">

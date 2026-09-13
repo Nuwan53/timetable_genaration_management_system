@@ -14,6 +14,11 @@ export default function Groups() {
       title="Student Groups"
       api={groups}
       fields={fields}
+      filters={[
+        {key: 'level', label: 'Level', allLabel: 'All levels'},
+        {key: 'stream', label: 'Stream', allLabel: 'All streams'},
+        {key: 'year', label: 'Year', allLabel: 'All years'}
+      ]}
       rowRenderer={item => (
         <>
           <td><span className="badge badge-blue">Level {item.level}</span></td>
