@@ -12,7 +12,7 @@ sql_mysql = """
         `must_change_password` bool NOT NULL,
         `lecturer_id` bigint NULL,
         `student_group_id` bigint NULL,
-        `user_id` bigint NOT NULL,
+        `user_id` int NOT NULL,
         PRIMARY KEY (`id`),
         UNIQUE KEY `api_userprofile_user_id_key` (`user_id`),
         KEY `api_userprofile_lecturer_id_5a0a4a21_fk_api_lecturer_id` (`lecturer_id`),

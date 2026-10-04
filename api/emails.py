@@ -40,7 +40,7 @@ def send_class_change_email(notification_type, course_code, venue_code, day, sta
         message=body,
         from_email=settings.DEFAULT_FROM_EMAIL,
         recipient_list=recipients,
-        fail_silently=True,
+        fail_silently=False,
     )
 
 # Add this function to your existing api/emails.py, alongside send_class_change_email

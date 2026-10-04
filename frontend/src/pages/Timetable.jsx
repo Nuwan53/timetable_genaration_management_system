@@ -7,7 +7,7 @@ import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
 import axios from 'axios';
 
-const api = axios.create({ baseURL: 'http://localhost:8000/api' });
+const api = axios.create({ baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api' });
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('tms_token');
   if (token) config.headers.Authorization = `Bearer ${token}`;
@@ -537,7 +537,24 @@ export default function Timetable() {
           <div className="form-group"><label>Lecturer</label>
             <select value={form.lecturer} onChange={e=>setForm({...form,lecturer:e.target.value})}>
               <option value="">— Select lecturer —</option>
-              {allLecturers.map(l=><option key={l.id} value={l.id}>{l.name}</option>)}
+              {Object.entries(
+                allLecturers.reduce((groupsByDept, l) => {
+                  const dept = l.department?.trim() || 'No Department Set';
+                  if (!groupsByDept[dept]) groupsByDept[dept] = [];
+                  groupsByDept[dept].push(l);
+                  return groupsByDept;
+                }, {})
+              )
+                .sort(([deptA], [deptB]) => deptA.localeCompare(deptB))
+                .map(([dept, lecturersInDept]) => (
+                  <optgroup key={dept} label={dept}>
+                    {lecturersInDept
+                      .sort((a, b) => a.name.localeCompare(b.name))
+                      .map(l => (
+                        <option key={l.id} value={l.id}>{l.name}</option>
+                      ))}
+                  </optgroup>
+                ))}
             </select>
           </div>
           <div className="form-group"><label>Venue</label>
