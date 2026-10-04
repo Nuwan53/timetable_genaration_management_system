@@ -1,6 +1,20 @@
 # Timetable Management System
 **Stack:** React + Django REST Framework + MySQL
 
+## Screenshots
+
+**Dashboard overview**
+![Dashboard](docs/screenshots/dashboard.png)
+
+**Timetable view with level/stream/semester filters**
+![Timetable view](docs/screenshots/timetable-view.png)
+
+**Filter controls**
+![Filters](docs/screenshots/filters.png)
+
+**Admin panel**
+![Admin panel](docs/screenshots/admin-panel.png)
+
 ---
 
 ## Setup (Step by Step)
